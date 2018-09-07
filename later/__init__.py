@@ -12,4 +12,8 @@
 # License for the specific language governing permissions and limitations
 # under the License.
 
-__version__ = "18.5.0a"
+from .task import START_TASK, Watcher, WatcherError
+
+
+__version__ = "18.9.0a"
+__all__ = ["START_TASK", "Watcher", "WatcherError"]

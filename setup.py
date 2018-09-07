@@ -15,50 +15,51 @@
 import ast
 import os
 import re
-from setuptools import setup, find_packages
 import sys
 
-assert sys.version_info >= (3, 6, 0), 'later requires Python >=3.6'
+from setuptools import find_packages, setup
+
+
+assert sys.version_info >= (3, 6, 0), "later requires Python >=3.6"
 
 thisdir = os.path.abspath(os.path.dirname(__file__))
-with open(os.path.join(thisdir, 'README.rst'), 'r') as f:
+with open(os.path.join(thisdir, "README.rst"), "r") as f:
     long_description = f.read()
 
-_version_re = re.compile(r'__version__\s+=\s+(?P<version>.*)')
+_version_re = re.compile(r"__version__\s+=\s+(?P<version>.*)")
 
-with open(os.path.join(thisdir, 'later', '__init__.py'), 'r') as f:
-        version = _version_re.search(f.read()).group('version')
-        version = str(ast.literal_eval(version))
+with open(os.path.join(thisdir, "later", "__init__.py"), "r") as f:
+    version = _version_re.search(f.read()).group("version")
+    version = str(ast.literal_eval(version))
 
 setup(
-    name='later',
+    name="later",
     version=version,
-    license='Apache 2.0',
-    url='http://github.com/facebook/later',
-    description='A toolbox for asyncio services',
+    license="Apache 2.0",
+    url="http://github.com/facebook/later",
+    description="A toolbox for asyncio services",
     long_description=long_description,
-    keywords='asyncio later',
-    author='Jason Fried, Facebook',
-    author_email='fried@fb.com',
+    keywords="asyncio later",
+    author="Jason Fried, Facebook",
+    author_email="fried@fb.com",
     zip_safe=True,
     package=find_packages(
-        exclude=['*.tests', '*.tests.*'],
-        include=['later.*', 'later']
+        exclude=["*.tests", "*.tests.*"], include=["later.*", "later"]
     ),
     test_suite="later",
     classifiers=[
-        'Development Status :: 5 - Production/Stable',
-        'Intended Audience :: Developers',
-        'Framework :: AsyncIO',
-        'License :: OSI Approved :: Apache Software License',
-        'Operating System :: POSIX',
-        'Operating System :: MacOS :: MacOS X',
-        'Programming Language :: Python',
-        'Programming Language :: Python :: 3',
-        'Programming Language :: Python :: 3.6',
-        'Programming Language :: Python :: 3.7',
-        'Programming Language :: Python :: 3 :: Only',
-        'Topic :: Software Development :: Libraries :: Python Modules',
-        'Topic :: Software Development :: Testing',
+        "Development Status :: 5 - Production/Stable",
+        "Intended Audience :: Developers",
+        "Framework :: AsyncIO",
+        "License :: OSI Approved :: Apache Software License",
+        "Operating System :: POSIX",
+        "Operating System :: MacOS :: MacOS X",
+        "Programming Language :: Python",
+        "Programming Language :: Python :: 3",
+        "Programming Language :: Python :: 3.6",
+        "Programming Language :: Python :: 3.7",
+        "Programming Language :: Python :: 3 :: Only",
+        "Topic :: Software Development :: Libraries :: Python Modules",
+        "Topic :: Software Development :: Testing",
     ],
 )
