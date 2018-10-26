@@ -1,4 +1,6 @@
 import asyncio
+import logging
+from functools import partial
 from inspect import isawaitable
 from types import TracebackType
 from typing import (
@@ -15,6 +17,7 @@ from typing import (
 
 
 FixerType = Callable[[asyncio.Task], Union[asyncio.Task, Awaitable[asyncio.Task]]]
+logger = logging.getLogger(__name__)
 
 __all__: Sequence[str] = ["Watcher", "START_TASK"]
 
@@ -32,6 +35,7 @@ class Watcher:
     _tasks_changed: asyncio.Event
     _cancelled: asyncio.Event
     _cancel_timeout: float
+    _preexit_callbacks: List[Callable[[], None]]
     loop: asyncio.AbstractEventLoop
 
     def __init__(self, cancel_timeout: float = 300) -> None:
@@ -44,6 +48,7 @@ class Watcher:
         self._scheduled = []
         self._tasks_changed = asyncio.Event()
         self._cancelled = asyncio.Event()
+        self._preexit_callbacks = []
 
     async def _run_scheduled(self) -> None:
         scheduled = self._scheduled
@@ -87,6 +92,18 @@ class Watcher:
         """
         self._cancelled.set()
 
+    def add_preexit_callback(self, callback: Callable[..., None], *args, **kws) -> None:
+        self._preexit_callbacks.append(partial(callback, *args, **kws))
+
+    def _run_preexit_callbacks(self) -> None:
+        for callback in self._preexit_callbacks:
+            try:
+                callback()
+            except Exception as e:
+                logger.exception(
+                    f"ignoring exception from pre-exit callback {callback}: {e}"
+                )
+
     async def __aenter__(self) -> "Watcher":
         self.loop = asyncio.get_event_loop()
         return self
@@ -125,6 +142,7 @@ class Watcher:
                 except asyncio.CancelledError:
                     self.cancel()
         finally:
+            self._run_preexit_callbacks()
             cancel_task.cancel()
             changed_task.cancel()
             await self._handle_cancel()

@@ -17,6 +17,20 @@ class WatcherTests(unittest.TestCase):
         loop = asyncio.get_event_loop()
         loop.run_until_complete(inner())
 
+    def test_preexit_callbacks(self) -> None:
+        callback = Mock()
+        callback.side_effect = Exception("DERP!")
+
+        async def inner() -> None:
+            async with later.Watcher() as w:
+                w.add_preexit_callback(callback, 1, 2)
+
+        loop = asyncio.get_event_loop()
+        loop.run_until_complete(inner())
+
+        self.assertTrue(callback.called)
+        callback.assert_has_calls([call(1, 2)])
+
     def test_bad_watch_call(self) -> None:
         w = later.Watcher()
         with self.assertRaises(ValueError):
