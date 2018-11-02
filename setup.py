@@ -62,4 +62,5 @@ setup(
         "Topic :: Software Development :: Libraries :: Python Modules",
         "Topic :: Software Development :: Testing",
     ],
+    install_requires=["async-timeout"],
 )

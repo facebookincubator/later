@@ -12,8 +12,14 @@
 # License for the specific language governing permissions and limitations
 # under the License.
 
-from .task import START_TASK, Watcher, WatcherError
+from async_timeout import timeout as timeout
+
+from .task import (
+    START_TASK as START_TASK,
+    Watcher as Watcher,
+    WatcherError as WatcherError,
+)
 
 
-__version__ = "18.9.0a"
-__all__ = ["START_TASK", "Watcher", "WatcherError"]
+__version__ = "18.10.0"
+__all__ = ["START_TASK", "Watcher", "WatcherError", "timeout"]
