@@ -149,9 +149,13 @@ class Watcher:
         return False
 
     async def _fix_task(self, task: asyncio.Task) -> None:
+        # Insure we "retrieve" the result of failed tasks
+        exc = task.exception()
+        if exc is None:
+            task.result()
         fixer = self._tasks[task]
         if fixer is None:
-            raise RuntimeError(f"{task} finished and there is no fixer!")
+            raise RuntimeError(f"{task} finished and there is no fixer!") from exc
         new_task = fixer(task)
         if not isinstance(new_task, asyncio.Task) and isawaitable(new_task):
             new_task = await new_task
@@ -162,18 +166,17 @@ class Watcher:
         else:
             raise TypeError(
                 f"{fixer}(task) failed to return a task, returned:" f"{new_task}!"
-            )
+            ) from exc
 
     async def _handle_cancel(self):
-        if not self._tasks:
+        tasks = [task for task in self._tasks if not task.done()]
+        if not tasks:
             return
 
-        for task in self._tasks:
+        for task in tasks:
             task.cancel()
 
-        done, pending = await asyncio.wait(
-            self._tasks.keys(), timeout=self._cancel_timeout
-        )
+        done, pending = await asyncio.wait(tasks, timeout=self._cancel_timeout)
         bad_tasks: List[asyncio.Task] = []
         for task in done:
             if task.cancelled():
