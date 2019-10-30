@@ -146,6 +146,7 @@ class Watcher:
             cancel_task.cancel()
             changed_task.cancel()
             await self._handle_cancel()
+            self._tasks.clear()
         return False
 
     async def _fix_task(self, task: asyncio.Task) -> None:
