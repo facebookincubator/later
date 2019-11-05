@@ -20,7 +20,7 @@ import sys
 from setuptools import find_packages, setup
 
 
-assert sys.version_info >= (3, 6, 0), "later requires Python >=3.6"
+assert sys.version_info >= (3, 7, 0), "later requires Python >=3.7"
 
 thisdir = os.path.abspath(os.path.dirname(__file__))
 with open(os.path.join(thisdir, "README.rst"), "r") as f:
@@ -36,7 +36,7 @@ setup(
     name="later",
     version=version,
     license="Apache 2.0",
-    url="http://github.com/facebook/later",
+    url="https://github.com/facebookincubator/later",
     description="A toolbox for asyncio services",
     long_description=long_description,
     keywords="asyncio later",
@@ -56,8 +56,8 @@ setup(
         "Operating System :: MacOS :: MacOS X",
         "Programming Language :: Python",
         "Programming Language :: Python :: 3",
-        "Programming Language :: Python :: 3.6",
         "Programming Language :: Python :: 3.7",
+        "Programming Language :: Python :: 3.8",
         "Programming Language :: Python :: 3 :: Only",
         "Topic :: Software Development :: Libraries :: Python Modules",
         "Topic :: Software Development :: Testing",

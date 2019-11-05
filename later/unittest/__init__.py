@@ -11,15 +11,7 @@
 # WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
 # License for the specific language governing permissions and limitations
 # under the License.
-
-from async_timeout import timeout as timeout
-
-from .task import (
-    START_TASK as START_TASK,
-    Watcher as Watcher,
-    WatcherError as WatcherError,
-)
+from .case import TestCase
 
 
-__version__ = "19.10.0"
-__all__ = ["START_TASK", "Watcher", "WatcherError", "timeout"]
+__all__ = ["TestCase"]
