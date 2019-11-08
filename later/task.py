@@ -156,11 +156,19 @@ class Watcher:
                     self.cancel()
         finally:
             self._run_preexit_callbacks()
-            cancel_task.cancel()
-            changed_task.cancel()
+            await self._event_task_cleanup(cancel_task, changed_task)
             await self._handle_cancel()
             self._tasks.clear()
         return False
+
+    async def _event_task_cleanup(self, *tasks):
+        for task in tasks:
+            if task is not START_TASK:
+                task.cancel()
+                try:
+                    await task
+                except asyncio.CancelledError:
+                    pass
 
     async def _fix_task(self, task: asyncio.Task) -> None:
         # Insure we "retrieve" the result of failed tasks
