@@ -28,16 +28,19 @@ from typing import (
     Optional,
     Sequence,
     Type,
+    TypeVar,
     Union,
     cast,
 )
 from unittest.mock import Mock
 
+from .event import BiDirectionalEvent
+
 
 FixerType = Callable[[asyncio.Task], Union[asyncio.Task, Awaitable[asyncio.Task]]]
 logger = logging.getLogger(__name__)
 
-__all__: Sequence[str] = ["Watcher", "START_TASK", "TaskSentinel"]
+__all__: Sequence[str] = ["Watcher", "START_TASK", "TaskSentinel", "cancel"]
 
 
 class TaskSentinel(asyncio.Task):
@@ -47,6 +50,17 @@ class TaskSentinel(asyncio.Task):
         fake = Mock()
         asyncio.Future.__init__(self, loop=fake)  # typing: ignore, don't create a loop
         asyncio.Future.set_result(self, None)
+
+
+async def cancel(fut: asyncio.Future) -> None:
+    """
+    Cancel a future/task and await for it to cancel.
+    This method suppresses the CancelledError
+    """
+    fut.cancel()
+    await asyncio.sleep(0)  # let loop cycle
+    with suppress(asyncio.CancelledError):
+        await fut
 
 
 # Sentinel Task
@@ -65,7 +79,7 @@ class WatcherError(RuntimeError):
 class Watcher:
     _tasks: Dict[asyncio.Future, Optional[FixerType]]
     _scheduled: List[FixerType]
-    _tasks_changed: asyncio.Event
+    _tasks_changed: BiDirectionalEvent
     _cancelled: asyncio.Event
     _cancel_timeout: float
     _preexit_callbacks: List[Callable[[], None]]
@@ -89,7 +103,7 @@ class Watcher:
         self._cancel_timeout = cancel_timeout
         self._tasks = {}
         self._scheduled = []
-        self._tasks_changed = asyncio.Event()
+        self._tasks_changed = BiDirectionalEvent()
         self._cancelled = asyncio.Event()
         self._preexit_callbacks = []
         self._shielded_tasks = {}
@@ -126,31 +140,28 @@ class Watcher:
         as the one passed in we will cancel it, and await it.
         """
 
-        async def insure_changed():
-            self._tasks_changed.set()
-            while self.running and self._tasks_changed.is_set():
-                await asyncio.sleep(0)
+        async def tasks_changed():
+            if self.running:
+                await self._tasks_changed.set()
 
         if shield:
             if task in self._shielded_tasks:
                 del self._tasks[self._shielded_tasks[task]]
                 del self._shielded_tasks[task]
-                await insure_changed()
+                await tasks_changed()
                 return True
         elif fixer is not None:
             for t, fix in tuple(self._tasks.items()):
                 if fix is fixer:
                     del self._tasks[t]
-                    await insure_changed()
+                    await tasks_changed()
                     if t is not task:
-                        t.cancel()
-                        with suppress(asyncio.CancelledError):
-                            await t
+                        await cancel(t)
                     return True
         elif task is not START_TASK:
             if task in self._tasks:
                 del self._tasks[task]
-                await insure_changed()
+                await tasks_changed()
                 return True
         return False
 
@@ -192,7 +203,7 @@ class Watcher:
             self._tasks[self._shielded_tasks[task]] = None
         else:
             self._tasks[task] = fixer
-        self._tasks_changed.set()
+        self._tasks_changed.set_nowait()
 
     def cancel(self) -> None:
         """
@@ -231,7 +242,6 @@ class Watcher:
                 if self._scheduled:
                     await self._run_scheduled()
                 if changed_task is START_TASK or changed_task.done():
-                    self._tasks_changed.clear()
                     changed_task = self.loop.create_task(self._tasks_changed.wait())
                 try:
                     if not self._tasks:
@@ -246,7 +256,6 @@ class Watcher:
                     for task in done:
                         task = cast(asyncio.Task, task)
                         if task is changed_task:
-                            self._tasks_changed.clear()
                             continue
                         else:
                             await self._fix_task(task)
@@ -265,9 +274,7 @@ class Watcher:
     async def _event_task_cleanup(self, *tasks):
         for task in tasks:
             if task is not START_TASK:
-                task.cancel()
-                with suppress(asyncio.CancelledError):
-                    await task
+                await cancel(task)
 
     async def _fix_task(self, task: asyncio.Task) -> None:
         # Insure we "retrieve" the result of failed tasks

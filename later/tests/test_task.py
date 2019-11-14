@@ -1,12 +1,21 @@
+from __future__ import annotations
+
 import asyncio
 from contextlib import suppress
-from typing import Callable
 from unittest.mock import Mock, call
 
 import later
 from later.unittest import TestCase
 
 from .helpers import AsyncMock
+
+
+class CancelTests(TestCase):
+    async def test_cancel_task(self) -> None:
+        task: asyncio.Task = asyncio.get_running_loop().create_task(asyncio.sleep(500))
+        await later.cancel(task)
+        self.assertTrue(task.done())
+        self.assertTrue(task.cancelled)
 
 
 class WatcherTests(TestCase):
