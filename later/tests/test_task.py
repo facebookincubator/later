@@ -1,4 +1,5 @@
 import asyncio
+from contextlib import suppress
 from typing import Callable
 from unittest.mock import Mock, call
 
@@ -22,6 +23,35 @@ class WatcherTests(TestCase):
 
         self.assertTrue(callback.called)
         callback.assert_has_calls([call(1, 2)])
+
+    async def test_add_task_and_remove_task(self) -> None:
+        loop = asyncio.get_running_loop()
+
+        def fixer(orig_task: asyncio.Task) -> asyncio.Task:
+            return loop.create_task(asyncio.sleep(0.5))
+
+        task: asyncio.Task = loop.create_task(asyncio.sleep(10))
+        watcher = later.Watcher(context=True)
+        watcher.watch(fixer=fixer)
+
+        async def work() -> None:
+            await asyncio.sleep(0.1)
+            watcher.watch(task)
+            await asyncio.sleep(0)
+            self.assertTrue(await watcher.unwatch(task))
+            self.assertTrue(await watcher.unwatch(fixer=fixer))
+            await asyncio.sleep(10)
+
+        async with watcher:
+            watcher.watch(loop.create_task(work()))
+            watcher.watch(task, shield=True)
+            self.assertTrue(await watcher.unwatch(task, shield=True))
+            self.assertFalse(await watcher.unwatch(task, shield=True))
+            loop.call_later(0.2, watcher.cancel)
+
+        task.cancel()
+        with suppress(asyncio.CancelledError):
+            await task
 
     def test_bad_watch_call(self) -> None:
         w = later.Watcher()
@@ -145,3 +175,40 @@ class WatcherTests(TestCase):
             async with later.Watcher(cancel_timeout=0.5) as watcher:
                 watcher.watch(task)
                 loop.call_later(0.2, watcher.cancel)
+
+    async def test_watcher_context(self) -> None:
+        loop = asyncio.get_running_loop()
+
+        def start_a_task():
+            later.Watcher.get().watch(loop.create_task(asyncio.sleep(5)))
+
+        async with later.Watcher() as watcher:
+            loop.call_later(0.2, watcher.cancel)
+            start_a_task()
+
+    async def test_watcher_context_at_init(self) -> None:
+        loop = asyncio.get_running_loop()
+
+        def start_a_task():
+            later.Watcher.get().watch(loop.create_task(asyncio.sleep(5)))
+
+        watcher = later.Watcher(context=True)
+        start_a_task()
+        async with watcher:
+            loop.call_later(0.2, watcher.cancel)
+
+    def test_watcher_context_non_exist(self) -> None:
+        with self.assertRaises(LookupError):
+            later.Watcher.get()
+
+    async def test_watch_with_shield(self) -> None:
+        loop = asyncio.get_running_loop()
+        task: asyncio.Task[None] = loop.create_task(asyncio.sleep(0.1))
+        async with later.Watcher() as watcher:
+            watcher.watch(task, shield=True)
+            with self.assertRaises(ValueError):
+                # This is not permitted
+                watcher.watch(task, fixer=lambda x: task, shield=True)
+            watcher.cancel()
+
+        await task

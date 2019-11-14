@@ -25,11 +25,7 @@ import asyncio.tasks
 import unittest.mock as mock
 from functools import wraps
 
-
-try:
-    from unittest import IsolatedAsyncioTestCase as AsyncioTestCase  # type: ignore
-except ImportError:
-    from .backport.async_case import IsolatedAsyncioTestCase as AsyncioTestCase
+from .backport.async_case import IsolatedAsyncioTestCase as AsyncioTestCase
 
 
 class TestTask(asyncio.Task):
