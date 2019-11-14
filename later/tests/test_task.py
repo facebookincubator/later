@@ -176,6 +176,12 @@ class WatcherTests(TestCase):
                 watcher.watch(task)
                 loop.call_later(0.2, watcher.cancel)
 
+    def test_watch_non_task(self) -> None:
+        watcher = later.Watcher()
+        # Can't watch coros, or anything else
+        with self.assertRaises(TypeError):
+            watcher.watch(asyncio.sleep(1))  # type: ignore
+
     async def test_watcher_context(self) -> None:
         loop = asyncio.get_running_loop()
 

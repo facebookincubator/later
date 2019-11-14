@@ -176,6 +176,11 @@ class Watcher:
         shield argument lets you watch a task, but not cancel it in this watcher.
         Useful for triggering on task failures, but not managing said task.
         """
+        # Watching a coro, leads to a confusing error deep in watcher
+        # so use runtime checks not just static types.
+        if not isinstance(task, asyncio.Task):
+            raise TypeError("only asyncio.Task objects can be watched.")
+
         if task is START_TASK:
             if not fixer:
                 raise ValueError("fixer must be specified when using START_TASK.")
