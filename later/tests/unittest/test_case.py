@@ -4,7 +4,7 @@ import asyncio
 import unittest
 from typing import Any, Optional
 
-from later.unittest import TestCase
+from later.unittest import TestCase, ignoreAsyncioErrors, ignoreTaskLeaks
 
 
 saved_task: Optional[asyncio.Task[Any]] = None
@@ -57,6 +57,24 @@ class TestTestCase(TestCase):
         self.assertTrue(t.was_managed())
         self.assertIsInstance(t.exception(), RuntimeError)
         self.assertTrue(t.done())
+
+    @ignoreAsyncioErrors
+    async def test_ignore_asyncio_error(self):
+        async def sub():
+            return 5
+
+        sub()  # don't await
+
+    @ignoreTaskLeaks
+    async def test_ingore_task_leaks(self):
+        async def coro():
+            raise RuntimeError
+
+        self._task = asyncio.get_running_loop().create_task(coro())
+
+    async def test_forgotten_tasks_done_no_value(self):
+        asyncio.get_running_loop().create_task(asyncio.sleep(0))
+        await asyncio.sleep(0)
 
 
 if __name__ == "__main__":

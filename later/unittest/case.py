@@ -19,17 +19,27 @@ test failure.
 from __future__ import annotations
 
 import asyncio
+import asyncio.coroutines
 import asyncio.futures
 import asyncio.log
 import asyncio.tasks
 import unittest.mock as mock
 from functools import wraps
+from typing import Any, Callable, TypeVar
 
 from .backport.async_case import IsolatedAsyncioTestCase as AsyncioTestCase
 
 
+_F = TypeVar("_F", bound=Callable[..., Any])
+
+
 class TestTask(asyncio.Task):
     _managed: bool = False
+    _coro_repr: str
+
+    def __init__(self, coro, *args, **kws):
+        self._coro_repr = asyncio.coroutines._format_coroutine(coro)
+        super().__init__(coro, *args, **kws)
 
     def __await__(self):
         self._managed = True
@@ -57,14 +67,33 @@ class TestTask(asyncio.Task):
         return self._managed
 
     def __del__(self):
-        context = {"task": self, "message": "Task was destroyed but never awaited!"}
-        if not self.was_managed():
+        # So a pattern is to create_task, and not save the results.
+        # we accept that as long as there was no result other than None
+        # thrift-py3 uses this pattern to call rpc methods in ServiceInterfaces
+        # where any result/execption is returned to the remote client.
+        managed = self.was_managed()
+        if not managed and not (
+            self.done()
+            and not self.cancelled()
+            and not self.exception()
+            and self.result() is None
+        ):
+            context = {
+                "task": self,
+                "message": (
+                    "Task was destroyed but never awaited!, "
+                    f"WrappedCoro: {self._coro_repr}"
+                ),
+            }
+            if self._source_traceback:
+                context["source_traceback"] = self._source_traceback
             self._loop.call_exception_handler(context)
         super().__del__()
 
 
 def task_factory(loop, coro):
-    return TestTask(coro, loop=loop)
+    task = TestTask(coro, loop=loop)
+    return task
 
 
 def all_tasks(loop):
@@ -88,11 +117,27 @@ def all_tasks(loop):
         return {t for t in tasks if _get_loop(t) is loop}
 
 
+def ignoreAsyncioErrors(test_item: _F) -> _F:
+    """ Test is allowed to cause Asyncio Error Logs """
+    test_item.__later_testcase_ignore_asyncio__ = True  # type: ignore
+    return test_item
+
+
+def ignoreTaskLeaks(test_item: _F) -> _F:
+    """ Test is allowed to leak tasks """
+    test_item.__later_testcase_ignore_tasks__ = True  # type: ignore
+    return test_item
+
+
 class TestCase(AsyncioTestCase):
     def _callTestMethod(self, testMethod):
+        ignore_error = getattr(testMethod, "__later_testcase_ignore_asyncio__", False)
+        ignore_tasks = getattr(testMethod, "__later_testcase_ignore_tasks__", False)
+
         loop = self._asyncioTestLoop
-        # install our own task factory for monitoring usage
-        loop.set_task_factory(task_factory)
+        if not ignore_tasks:
+            # install our own task factory for monitoring usage
+            loop.set_task_factory(task_factory)
         # Track existing tasks
         start_tasks = all_tasks(loop)
         # Setup a patch for the asyncio logger
@@ -101,8 +146,6 @@ class TestCase(AsyncioTestCase):
             asyncio.log.logger, "error", side_effect=real_logger
         ) as error:
             super()._callTestMethod(testMethod)
-            if error.called:
-                self.fail(f"asyncio logger.error() was called!\n{error.call_args_list}")
 
         # Lets join the queue to insure all the tasks created by this case
         # are cleaned up
@@ -111,5 +154,7 @@ class TestCase(AsyncioTestCase):
         for task in list(left_over_tasks):
             if isinstance(task, TestTask) and task.was_managed():
                 left_over_tasks.remove(task)
-        if left_over_tasks:
+        if left_over_tasks and not ignore_tasks:
             self.assertEqual(set(), left_over_tasks, "left over un-awaited tasks!")
+        if error.called and not ignore_error:
+            self.fail(f"asyncio logger.error() was called!\n{error.call_args_list}")
