@@ -1,7 +1,6 @@
 # This file was copied from python 3.8 stdlib, for use in python 3.7
-# It is licensed as python itself see https://github.com/python/cpython/LICENSE
+# It is licensed as python see https://github.com/python/cpython/blob/master/LICENSE
 # Any changes made for 3.7 were done under that license.
-# pragma: nopy38 nopy39  Added nocover for places not tested by our copy of 3.8 tests
 
 import asyncio
 import inspect

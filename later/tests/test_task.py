@@ -6,8 +6,7 @@ from unittest.mock import Mock, call
 
 import later
 from later.unittest import TestCase
-
-from .helpers import AsyncMock
+from later.unittest.mock import AsyncMock
 
 
 class CancelTests(TestCase):
@@ -123,7 +122,8 @@ class WatcherTests(TestCase):
                 watcher.watch(task, fixer)
 
         self.assertTrue(fixer.called)
-        fixer.assert_has_calls([call(task), call(replacement_task)])
+        fixer.assert_awaited()
+        fixer.assert_has_awaits([call(task), call(replacement_task)])
 
     async def test_watcher_START_TASK_with_bad_callable_fixer(self) -> None:
         fixer = Mock()
@@ -145,6 +145,7 @@ class WatcherTests(TestCase):
                 watcher.watch(fixer=fixer)
 
         self.assertTrue(fixer.called)
+        fixer.assert_awaited()
         fixer.assert_has_calls([call(later.START_TASK)])
 
     async def test_watcher_START_TASK_with_working_fixer(self) -> None:
@@ -158,7 +159,8 @@ class WatcherTests(TestCase):
                 watcher.watch(fixer=fixer)
 
         self.assertTrue(fixer.called)
-        fixer.assert_has_calls([call(later.START_TASK), call(task)])
+        fixer.assert_awaited()
+        fixer.assert_has_awaits([call(later.START_TASK), call(task)])
 
     async def test_watcher_canceled_parent_aexit(self) -> None:
         loop = asyncio.get_running_loop()
