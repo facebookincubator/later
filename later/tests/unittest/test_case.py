@@ -66,7 +66,7 @@ class TestTestCase(TestCase):
         sub()  # don't await
 
     @ignoreTaskLeaks
-    async def test_ingore_task_leaks(self):
+    async def test_ignore_task_leaks(self):
         async def coro():
             raise RuntimeError
 
@@ -75,6 +75,24 @@ class TestTestCase(TestCase):
     async def test_forgotten_tasks_done_no_value(self):
         asyncio.get_running_loop().create_task(asyncio.sleep(0))
         await asyncio.sleep(0)
+
+
+@ignoreAsyncioErrors
+class IgnoreAsyncioErrorsTestCase(TestCase):
+    async def test_ignore_asyncio_error_on_case_class(self):
+        async def sub():
+            return 5
+
+        sub()  # don't await
+
+
+@ignoreTaskLeaks
+class IgnoreTaskLeaksTestCase(TestCase):
+    async def test_ignore_task_leaks_on_case_class(self):
+        async def coro():
+            raise RuntimeError
+
+        self._task = asyncio.get_running_loop().create_task(coro())
 
 
 if __name__ == "__main__":

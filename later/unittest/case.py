@@ -31,6 +31,8 @@ from .backport.async_case import IsolatedAsyncioTestCase as AsyncioTestCase
 
 
 _F = TypeVar("_F", bound=Callable[..., Any])
+_IGNORE_TASK_LEAKS_ATTR = "__later_testcase_ignore_tasks__"
+_IGNORE_AIO_ERRS_ATTR = "__later_testcase_ignore_asyncio__"
 
 
 class TestTask(asyncio.Task):
@@ -119,20 +121,28 @@ def all_tasks(loop):
 
 def ignoreAsyncioErrors(test_item: _F) -> _F:
     """ Test is allowed to cause Asyncio Error Logs """
-    test_item.__later_testcase_ignore_asyncio__ = True  # type: ignore
+    setattr(test_item, _IGNORE_AIO_ERRS_ATTR, True)
     return test_item
 
 
 def ignoreTaskLeaks(test_item: _F) -> _F:
     """ Test is allowed to leak tasks """
-    test_item.__later_testcase_ignore_tasks__ = True  # type: ignore
+    setattr(test_item, _IGNORE_TASK_LEAKS_ATTR, True)
     return test_item
 
 
 class TestCase(AsyncioTestCase):
     def _callTestMethod(self, testMethod):
-        ignore_error = getattr(testMethod, "__later_testcase_ignore_asyncio__", False)
-        ignore_tasks = getattr(testMethod, "__later_testcase_ignore_tasks__", False)
+        ignore_error = getattr(
+            self,
+            _IGNORE_AIO_ERRS_ATTR,
+            getattr(testMethod, _IGNORE_AIO_ERRS_ATTR, False),
+        )
+        ignore_tasks = getattr(
+            self,
+            _IGNORE_TASK_LEAKS_ATTR,
+            getattr(testMethod, _IGNORE_TASK_LEAKS_ATTR, False),
+        )
 
         loop = self._asyncioTestLoop
         if not ignore_tasks:
