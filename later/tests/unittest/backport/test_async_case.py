@@ -12,6 +12,12 @@ def tearDownModule():
     asyncio.set_event_loop_policy(None)
 
 
+class TestHangsForever(IsolatedAsyncioTestCase):
+    @unittest.expectedFailure
+    async def test_base_exception_from_async_method(self):
+        raise BaseException("Hangs forever")
+
+
 class TestAsyncCase(unittest.TestCase):
     def test_full_cycle(self):
         events = []

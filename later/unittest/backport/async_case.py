@@ -4,6 +4,7 @@
 
 import asyncio
 import inspect
+import sys
 from unittest.case import TestCase as _TestCase, _Outcome
 
 
@@ -87,6 +88,22 @@ class TestCase(_TestCase):  # pragma: nocover not testing the non async pieces
         # return this for backwards compatibility
         # even though we no longer use it internally
         return outcome.success
+
+
+if sys.version_info[:2] < (3, 8):
+
+    def handle_base_exception(fut, exc):
+        # Set up a new Exception with explicit chaining to the original
+        # exception. But BaseException breaks something in asyncio in 3.7
+        new_ex = Exception("Error BaseException Raised in Async TestMethod")
+        new_ex.__cause__ = exc
+        fut.set_exception(new_ex)
+
+
+else:
+
+    def handle_base_exception(fut, exc):
+        fut.set_exception(exc)
 
 
 class IsolatedAsyncioTestCase(TestCase):
@@ -188,9 +205,9 @@ class IsolatedAsyncioTestCase(TestCase):
                     fut.set_result(ret)
             except asyncio.CancelledError:  # pragma: nocover
                 raise
-            except Exception as ex:
+            except BaseException as ex:
                 if not fut.cancelled():
-                    fut.set_exception(ex)
+                    handle_base_exception(fut, ex)
 
     def _setupAsyncioLoop(self):
         assert self._asyncioTestLoop is None
