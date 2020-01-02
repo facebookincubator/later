@@ -93,9 +93,12 @@ class TestCase(_TestCase):  # pragma: nocover not testing the non async pieces
 if sys.version_info[:2] < (3, 8):
 
     def handle_base_exception(fut, exc):
-        # Set up a new Exception with explicit chaining to the original
-        # exception. But BaseException breaks something in asyncio in 3.7
-        new_ex = Exception("Error BaseException Raised in Async TestMethod")
+        # Due to a bug in 3.7, that was fixed in 3.8, if any BaseException is raised
+        # from from a test will make it hang (discussion https://fburl.com/5ul4eol2).
+        # This workaround sets up a new Exception that tries to mimic the original
+        # BaseException name / message.
+        exc_class = type(type(exc).__name__, (Exception,), {})
+        new_ex = exc_class(str(exc))
         new_ex.__cause__ = exc
         fut.set_exception(new_ex)
 
@@ -205,6 +208,9 @@ class IsolatedAsyncioTestCase(TestCase):
                     fut.set_result(ret)
             except asyncio.CancelledError:  # pragma: nocover
                 raise
+            except Exception as ex:
+                if not fut.cancelled():
+                    fut.set_exception(ex)
             except BaseException as ex:
                 if not fut.cancelled():
                     handle_base_exception(fut, ex)
