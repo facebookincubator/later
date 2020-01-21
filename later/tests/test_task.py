@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 from contextlib import suppress
+from typing import cast
 from unittest.mock import Mock, call
 
 import later
@@ -9,12 +10,21 @@ from later.unittest import TestCase
 from later.unittest.mock import AsyncMock
 
 
-class CancelTests(TestCase):
+class TaskTests(TestCase):
+    async def test_as_task(self) -> None:
+        tsleep = later.as_task(asyncio.sleep)
+        # pep484 is still limited on typing around decorators, best to cast
+        task: asyncio.Task = cast(asyncio.Task, tsleep(500))
+        self.assertIsInstance(task, asyncio.Task)
+        await later.cancel(task)
+        self.assertTrue(task.done())
+        self.assertTrue(task.cancelled())
+
     async def test_cancel_task(self) -> None:
         task: asyncio.Task = asyncio.get_running_loop().create_task(asyncio.sleep(500))
         await later.cancel(task)
         self.assertTrue(task.done())
-        self.assertTrue(task.cancelled)
+        self.assertTrue(task.cancelled())
 
 
 class WatcherTests(TestCase):

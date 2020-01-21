@@ -15,10 +15,10 @@
 from async_timeout import timeout
 
 from .event import BiDirectionalEvent
-from .task import START_TASK, Watcher, WatcherError, cancel
+from .task import START_TASK, Watcher, WatcherError, as_task, cancel
 
 
-__version__ = "19.10.0"
+__version__ = "20.01.0"
 __all__ = [
     "BiDirectionalEvent",
     "START_TASK",
@@ -26,4 +26,5 @@ __all__ = [
     "WatcherError",
     "cancel",
     "timeout",
+    "as_task",
 ]

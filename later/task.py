@@ -17,10 +17,11 @@ import asyncio
 import contextvars
 import logging
 from contextlib import suppress
-from functools import partial
+from functools import partial, wraps
 from inspect import isawaitable
 from types import TracebackType
 from typing import (
+    Any,
     Awaitable,
     Callable,
     Dict,
@@ -39,8 +40,9 @@ from .event import BiDirectionalEvent
 
 FixerType = Callable[[asyncio.Task], Union[asyncio.Task, Awaitable[asyncio.Task]]]
 logger = logging.getLogger(__name__)
+F = TypeVar("F", bound=Callable[..., Awaitable[Any]])
 
-__all__: Sequence[str] = ["Watcher", "START_TASK", "TaskSentinel", "cancel"]
+__all__: Sequence[str] = ["Watcher", "START_TASK", "TaskSentinel", "cancel", "as_task"]
 
 
 class TaskSentinel(asyncio.Task):
@@ -61,6 +63,20 @@ async def cancel(fut: asyncio.Future) -> None:
     await asyncio.sleep(0)  # let loop cycle
     with suppress(asyncio.CancelledError):
         await fut
+
+
+def as_task(func: F) -> F:
+    """
+    Decorate a function, So that when called it is wrapped in a task
+    on the running loop.
+    """
+
+    @wraps(func)
+    def create_task(*args, **kws):
+        loop = asyncio.get_running_loop()
+        return loop.create_task(func(*args, **kws))
+
+    return cast(F, create_task)
 
 
 # Sentinel Task
