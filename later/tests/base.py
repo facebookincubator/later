@@ -11,7 +11,13 @@
 # WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
 # License for the specific language governing permissions and limitations
 # under the License.
-from .case import TestCase, ignoreAsyncioErrors, ignoreTaskLeaks
+
+import unittest
+
+from later.tests.test_event import Test_BiDirectionalEvent  # noqa: F401
+from later.tests.test_task import TaskTests, WatcherTests  # noqa: F401
+from later.tests.test_version import VersionTests  # noqa: F401
 
 
-__all__ = ["TestCase", "ignoreAsyncioErrors", "ignoreTaskLeaks"]
+if __name__ == "__main__":
+    unittest.main()

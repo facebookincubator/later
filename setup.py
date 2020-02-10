@@ -53,7 +53,7 @@ setup(
         exclude=["*.tests", "*.tests.*"], include=["later.*", "later"]
     ),
     py_requires=">3.7",
-    test_suite="later",
+    test_suite="later.tests.base",
     classifiers=[
         "Development Status :: 5 - Production/Stable",
         "Intended Audience :: Developers",
