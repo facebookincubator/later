@@ -21,7 +21,7 @@ from __future__ import annotations
 import asyncio
 import asyncio.coroutines
 import asyncio.futures
-import asyncio.log
+import asyncio.log  # type: ignore
 import asyncio.tasks
 import unittest.mock as mock
 from functools import wraps
