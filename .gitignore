@@ -63,3 +63,4 @@ target/
 
 .venv
 .venv37
+.mypy_cache
