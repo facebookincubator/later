@@ -45,14 +45,12 @@ setup(
     url="https://github.com/facebookincubator/later",
     description="A toolbox for asyncio services",
     long_description=long_desc(),
-    keywords="asyncio later",
+    keywords=["asyncio", "later"],
     author="Jason Fried, Facebook",
     author_email="fried@fb.com",
     zip_safe=True,
-    package=find_packages(
-        exclude=["*.tests", "*.tests.*"], include=["later.*", "later"]
-    ),
-    py_requires=">3.7",
+    packages=find_packages(include=["later.*", "later"]),
+    python_requires=">3.7",
     test_suite="later.tests.base",
     classifiers=[
         "Development Status :: 5 - Production/Stable",
@@ -69,5 +67,8 @@ setup(
         "Topic :: Software Development :: Libraries :: Python Modules",
         "Topic :: Software Development :: Testing",
     ],
-    install_requires=["async-timeout"],
+    install_requires=["async-timeout >=2.0.0,<5.0.0"],
+    # Per PEP 561
+    package_data = {"later": ["py.typed"]},
+    include_package_data=True,
 )
