@@ -69,6 +69,6 @@ setup(
     ],
     install_requires=["async-timeout >=2.0.0,<5.0.0"],
     # Per PEP 561
-    package_data = {"later": ["py.typed"]},
+    package_data={"later": ["py.typed"]},
     include_package_data=True,
 )
