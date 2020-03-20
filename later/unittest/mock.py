@@ -14,7 +14,7 @@
 from __future__ import annotations
 
 from typing import Any
-from unittest.mock import DEFAULT
+from unittest.mock import DEFAULT, call
 
 from .backport.mock import AsyncMock, MagicMock, Mock, create_autospec, patch
 
@@ -24,6 +24,7 @@ __all__ = [
     "AsyncMock",
     "MagicMock",
     "Mock",
+    "call",
     "create_autospec",
     "patch",
 ]
