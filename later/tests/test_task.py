@@ -214,7 +214,9 @@ class WatcherTests(TestCase):
         watcher = later.Watcher()
         # Can't watch coros, or anything else
         with self.assertRaises(TypeError):
-            watcher.watch(asyncio.sleep(1))  # type: ignore
+            # pyre-fixme[6]: Expected `Task[typing.Any]` for 1st param but got
+            #  `Future[Variable[asyncio.tasks._T]]`.
+            watcher.watch(asyncio.sleep(1))
 
     async def test_watcher_context(self) -> None:
         loop = asyncio.get_running_loop()
