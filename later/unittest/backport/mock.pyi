@@ -22,6 +22,7 @@ from unittest.mock import (
 
 class AsyncMockMixin(Base):
     await_count: int
+    # pyre-fixme[11]: Annotation `call` is not defined as a type.
     await_args: Optional[call]
     await_args_list: List[call]
     def assert_awaited(self) -> None: ...

@@ -92,6 +92,7 @@ class WatcherError(RuntimeError):
     pass
 
 
+# pyre-fixme[13]: Attribute `loop` is never initialized.
 class Watcher:
     _tasks: Dict[asyncio.Future, Optional[FixerType]]
     _scheduled: List[FixerType]

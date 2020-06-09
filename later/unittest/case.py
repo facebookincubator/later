@@ -21,6 +21,8 @@ from __future__ import annotations
 import asyncio
 import asyncio.coroutines
 import asyncio.futures
+
+# pyre-fixme[21]: Could not find `log`.
 import asyncio.log
 import asyncio.tasks
 import unittest.mock as mock
