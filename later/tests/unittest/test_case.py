@@ -37,6 +37,28 @@ class TestTestCase(TestCase):
         )
         await saved_done_task
 
+    async def test_managed_task_done_none(self):
+        global saved_done_task
+
+        async def coro(e: asyncio.Event) -> None:
+            e.set()
+
+        event = asyncio.Event()
+        saved_done_task = asyncio.get_running_loop().create_task(coro(event))
+        await event.wait()
+
+    @unittest.expectedFailure
+    async def test_unmanaged_task_done_value(self):
+        global saved_done_task
+
+        async def coro(e: asyncio.Event) -> bool:
+            e.set()
+            return False
+
+        event = asyncio.Event()
+        saved_done_task = asyncio.get_running_loop().create_task(coro(event))
+        await event.wait()
+
     @unittest.expectedFailure
     async def test_garbage_collected_task_during_testmethod(self):
         t = asyncio.get_running_loop().create_task(asyncio.sleep(10))

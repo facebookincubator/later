@@ -23,6 +23,7 @@ import asyncio.coroutines
 import asyncio.futures
 import asyncio.log
 import asyncio.tasks
+import sys
 import unittest.mock as mock
 from functools import wraps
 from typing import Any, Callable, TypeVar
@@ -33,6 +34,7 @@ from .backport.async_case import IsolatedAsyncioTestCase as AsyncioTestCase
 _F = TypeVar("_F", bound=Callable[..., Any])
 _IGNORE_TASK_LEAKS_ATTR = "__later_testcase_ignore_tasks__"
 _IGNORE_AIO_ERRS_ATTR = "__later_testcase_ignore_asyncio__"
+atleastpy38 = sys.version_info[:2] >= (3, 8)
 
 
 class TestTask(asyncio.Task):
@@ -42,6 +44,15 @@ class TestTask(asyncio.Task):
     def __init__(self, coro, *args, **kws):
         self._coro_repr = asyncio.coroutines._format_coroutine(coro)
         super().__init__(coro, *args, **kws)
+
+    def __repr__(self):
+        repr_info = self._repr_info()
+        coro = f"coro={self._coro_repr}"
+        if atleastpy38:  # py3.8 added name=
+            repr_info[2] = coro  # pragma: nocover
+        else:
+            repr_info[1] = coro  # pragma: nocover
+        return f"<{self.__class__.__name__} {' '.join(repr_info)}>"
 
     def __await__(self):
         self._managed = True
@@ -66,7 +77,15 @@ class TestTask(asyncio.Task):
         super().add_done_callback(mark_managed, context=context)
 
     def was_managed(self):
-        return self._managed
+        if self._managed:
+            return True
+        # If the task is done() and the result is None, let it pass as managed
+        return (
+            self.done()
+            and not self.cancelled()
+            and not self.exception()
+            and self.result() is None
+        )
 
     def __del__(self):
         # So a pattern is to create_task, and not save the results.
@@ -148,6 +167,7 @@ class TestCase(AsyncioTestCase):
         if not ignore_tasks:
             # install our own task factory for monitoring usage
             loop.set_task_factory(task_factory)
+
         # Track existing tasks
         start_tasks = all_tasks(loop)
         # Setup a patch for the asyncio logger
