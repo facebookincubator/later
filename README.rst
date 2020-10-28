@@ -2,7 +2,7 @@
 later
 =====
 .. image:: https://github.com/facebookincubator/later/workflows/later_ci/badge.svg
-    :target: https://github.com/facebookincubator/laster/actions
+    :target: https://github.com/facebookincubator/later/actions
 
 .. image:: https://img.shields.io/badge/code%20style-black-000000.svg
     :target: https://github.com/psf/black
