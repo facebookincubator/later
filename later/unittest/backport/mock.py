@@ -31,16 +31,16 @@ __all__ = (
 __version__ = '1.0'
 
 import asyncio
+import builtins
 import contextlib
-import io
 import inspect
+import io
 import pprint
 import sys
-import builtins
-from types import CodeType, ModuleType, MethodType
-from unittest.util import safe_repr
-from unittest.mock import sentinel
 from functools import wraps, partial
+from types import CodeType, ModuleType, MethodType
+from unittest.mock import sentinel
+from unittest.util import safe_repr
 
 
 _builtins = {name for name in dir(builtins) if not name.startswith('_')}
