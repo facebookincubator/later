@@ -46,7 +46,7 @@ __all__: Sequence[str] = ["Watcher", "START_TASK", "TaskSentinel", "cancel", "as
 
 
 class TaskSentinel(asyncio.Task):
-    """ When you need a done task for typing """
+    """When you need a done task for typing"""
 
     def __init__(self):
         fake = Mock()

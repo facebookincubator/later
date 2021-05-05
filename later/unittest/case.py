@@ -139,13 +139,13 @@ def all_tasks(loop):
 
 
 def ignoreAsyncioErrors(test_item: _F) -> _F:
-    """ Test is allowed to cause Asyncio Error Logs """
+    """Test is allowed to cause Asyncio Error Logs"""
     setattr(test_item, _IGNORE_AIO_ERRS_ATTR, True)
     return test_item
 
 
 def ignoreTaskLeaks(test_item: _F) -> _F:
-    """ Test is allowed to leak tasks """
+    """Test is allowed to leak tasks"""
     setattr(test_item, _IGNORE_TASK_LEAKS_ATTR, True)
     return test_item
 
