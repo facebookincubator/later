@@ -34,18 +34,20 @@ from .backport.async_case import IsolatedAsyncioTestCase as AsyncioTestCase
 _F = TypeVar("_F", bound=Callable[..., Any])
 _IGNORE_TASK_LEAKS_ATTR = "__later_testcase_ignore_tasks__"
 _IGNORE_AIO_ERRS_ATTR = "__later_testcase_ignore_asyncio__"
-atleastpy38 = sys.version_info[:2] >= (3, 8)
+atleastpy38: bool = sys.version_info[:2] >= (3, 8)
 
 
 class TestTask(asyncio.Task):
     _managed: bool = False
     _coro_repr: str
 
-    def __init__(self, coro, *args, **kws):
+    def __init__(self, coro, *args, **kws) -> None:
+        # pyre-fixme[16]: Module `coroutines` has no attribute `_format_coroutine`.
         self._coro_repr = asyncio.coroutines._format_coroutine(coro)
         super().__init__(coro, *args, **kws)
 
-    def __repr__(self):
+    def __repr__(self) -> str:
+        # pyre-fixme[16]: `TestTask` has no attribute `_repr_info`.
         repr_info = self._repr_info()
         coro = f"coro={self._coro_repr}"
         if atleastpy38:  # py3.8 added name=
@@ -68,7 +70,7 @@ class TestTask(asyncio.Task):
             self._managed = True
         return super().exception()
 
-    def add_done_callback(self, fn, *, context=None):
+    def add_done_callback(self, fn, *, context=None) -> None:
         @wraps(fn)
         def mark_managed(fut):
             self._managed = True
@@ -76,7 +78,7 @@ class TestTask(asyncio.Task):
 
         super().add_done_callback(mark_managed, context=context)
 
-    def was_managed(self):
+    def was_managed(self) -> bool:
         if self._managed:
             return True
         # If the task is done() and the result is None, let it pass as managed
@@ -87,7 +89,7 @@ class TestTask(asyncio.Task):
             and self.result() is None
         )
 
-    def __del__(self):
+    def __del__(self) -> None:
         # So a pattern is to create_task, and not save the results.
         # we accept that as long as there was no result other than None
         # thrift-py3 uses this pattern to call rpc methods in ServiceInterfaces
@@ -106,13 +108,14 @@ class TestTask(asyncio.Task):
                     f"WrappedCoro: {self._coro_repr}"
                 ),
             }
+            # pyre-fixme[16]: `TestTask` has no attribute `_source_traceback`.
             if self._source_traceback:
                 context["source_traceback"] = self._source_traceback
             self._loop.call_exception_handler(context)
         super().__del__()
 
 
-def task_factory(loop, coro):
+def task_factory(loop, coro) -> TestTask:
     task = TestTask(coro, loop=loop)
     return task
 
@@ -151,7 +154,7 @@ def ignoreTaskLeaks(test_item: _F) -> _F:
 
 
 class TestCase(AsyncioTestCase):
-    def _callTestMethod(self, testMethod):
+    def _callTestMethod(self, testMethod) -> None:
         ignore_error = getattr(
             self,
             _IGNORE_AIO_ERRS_ATTR,
@@ -163,6 +166,7 @@ class TestCase(AsyncioTestCase):
             getattr(testMethod, _IGNORE_TASK_LEAKS_ATTR, False),
         )
 
+        # pyre-fixme[16]: `TestCase` has no attribute `_asyncioTestLoop`.
         loop = self._asyncioTestLoop
         if not ignore_tasks:
             # install our own task factory for monitoring usage
@@ -175,10 +179,12 @@ class TestCase(AsyncioTestCase):
         with mock.patch.object(
             asyncio.log.logger, "error", side_effect=real_logger
         ) as error:
+            # pyre-fixme[16]: `AsyncioTestCase` has no attribute `_callTestMethod`.
             super()._callTestMethod(testMethod)
 
         # Lets join the queue to insure all the tasks created by this case
         # are cleaned up
+        # pyre-fixme[16]: `TestCase` has no attribute `_asyncioCallsQueue`.
         loop.run_until_complete(self._asyncioCallsQueue.join())
         left_over_tasks = set(all_tasks(loop)) - set(start_tasks)
         for task in list(left_over_tasks):

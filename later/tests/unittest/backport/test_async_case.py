@@ -9,7 +9,7 @@ import unittest
 from later.unittest.backport.async_case import IsolatedAsyncioTestCase
 
 
-def tearDownModule():
+def tearDownModule() -> None:
     asyncio.set_event_loop_policy(None)
 
 
@@ -20,7 +20,7 @@ class TestHangsForever(IsolatedAsyncioTestCase):
 
 
 class TestAsyncCase(unittest.TestCase):
-    def test_full_cycle(self):
+    def test_full_cycle(self) -> None:
         events = []
 
         class Test(IsolatedAsyncioTestCase):
@@ -60,7 +60,7 @@ class TestAsyncCase(unittest.TestCase):
             ["setUp", "asyncSetUp", "test", "asyncTearDown", "tearDown", "cleanup"],
         )
 
-    def test_exception_in_setup(self):
+    def test_exception_in_setup(self) -> None:
         events = []
 
         class Test(IsolatedAsyncioTestCase):
@@ -82,7 +82,7 @@ class TestAsyncCase(unittest.TestCase):
         test.run()
         self.assertEqual(events, ["asyncSetUp"])
 
-    def test_exception_in_test(self):
+    def test_exception_in_test(self) -> None:
         events = []
 
         class Test(IsolatedAsyncioTestCase):
@@ -104,7 +104,7 @@ class TestAsyncCase(unittest.TestCase):
         test.run()
         self.assertEqual(events, ["asyncSetUp", "test", "asyncTearDown"])
 
-    def test_exception_in_test_after_adding_cleanup(self):
+    def test_exception_in_test_after_adding_cleanup(self) -> None:
         events = []
 
         class Test(IsolatedAsyncioTestCase):
@@ -126,7 +126,7 @@ class TestAsyncCase(unittest.TestCase):
         test.run()
         self.assertEqual(events, ["asyncSetUp", "test", "asyncTearDown", "cleanup"])
 
-    def test_exception_in_tear_down(self):
+    def test_exception_in_tear_down(self) -> None:
         events = []
 
         class Test(IsolatedAsyncioTestCase):
@@ -148,7 +148,7 @@ class TestAsyncCase(unittest.TestCase):
         test.run()
         self.assertEqual(events, ["asyncSetUp", "test", "asyncTearDown", "cleanup"])
 
-    def test_exception_in_tear_clean_up(self):
+    def test_exception_in_tear_clean_up(self) -> None:
         events = []
 
         class Test(IsolatedAsyncioTestCase):
@@ -170,7 +170,7 @@ class TestAsyncCase(unittest.TestCase):
         test.run()
         self.assertEqual(events, ["asyncSetUp", "test", "asyncTearDown", "cleanup"])
 
-    def test_cleanups_interleave_order(self):
+    def test_cleanups_interleave_order(self) -> None:
         events = []
 
         class Test(IsolatedAsyncioTestCase):

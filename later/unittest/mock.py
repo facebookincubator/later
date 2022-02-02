@@ -30,7 +30,7 @@ __all__ = [
 ]
 
 
-def AsyncContextManager(return_value: Any = DEFAULT, instance=False) -> Mock:
+def AsyncContextManager(return_value: Any = DEFAULT, instance: bool = False) -> Mock:
     """
     This helper sets up a Mock Tree to mock out an AsyncContextManager class.
     return_value: The object returned by the context manager

@@ -32,15 +32,15 @@ class Helper:
 
 class TestPatch(IsolatedAsyncioTestCase):
     @patch("later.tests.unittest.backport.test_mock.Helper.async_class_method")
-    async def test_patch_classmethods(self, patched):
+    async def test_patch_classmethods(self, patched) -> None:
         await Helper.async_class_method()
 
     @patch("later.tests.unittest.backport.test_mock.Helper.async_static_method")
-    async def test_patch_staticmethods(self, patched):
+    async def test_patch_staticmethods(self, patched) -> None:
         await Helper.async_static_method()
 
     @patch("later.tests.unittest.backport.test_mock.Helper.async_method")
-    async def test_patch_methods(self, patched):
+    async def test_patch_methods(self, patched) -> None:
         await Helper().async_method()
 
 

@@ -25,7 +25,7 @@ class BiDirectionalEvent:
     _cevent: Event
     _first_wait: Event
 
-    def __init__(self):
+    def __init__(self) -> None:
         self._cevent = Event()
         self._sevent = Event()
         self._first_wait = Event()
@@ -38,7 +38,7 @@ class BiDirectionalEvent:
         await self._sevent.wait()
         self._sevent.clear()
 
-    def is_set(self):
+    def is_set(self) -> bool:
         return self._sevent.is_set()
 
     async def set(self) -> None:
