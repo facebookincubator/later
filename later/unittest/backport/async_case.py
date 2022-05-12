@@ -102,7 +102,6 @@ if sys.version_info[:2] < (3, 8):
         new_ex.__cause__ = exc
         fut.set_exception(new_ex)
 
-
 else:
 
     def handle_base_exception(fut, exc):
