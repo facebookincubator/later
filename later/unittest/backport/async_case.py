@@ -5,7 +5,7 @@
 import asyncio
 import inspect
 import sys
-from unittest.case import TestCase as _TestCase, _Outcome
+from unittest.case import _Outcome, TestCase as _TestCase
 
 
 class TestCase(_TestCase):  # pragma: nocover not testing the non async pieces

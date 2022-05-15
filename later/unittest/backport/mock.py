@@ -37,8 +37,8 @@ import inspect
 import io
 import pprint
 import sys
-from functools import wraps, partial
-from types import CodeType, ModuleType, MethodType
+from functools import partial, wraps
+from types import CodeType, MethodType, ModuleType
 from unittest.mock import sentinel
 from unittest.util import safe_repr
 

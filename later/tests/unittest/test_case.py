@@ -17,7 +17,7 @@ import asyncio
 import unittest
 from typing import Any, Optional
 
-from later.unittest import TestCase, ignoreAsyncioErrors, ignoreTaskLeaks
+from later.unittest import ignoreAsyncioErrors, ignoreTaskLeaks, TestCase
 
 
 saved_task: Optional[asyncio.Task[Any]] = None

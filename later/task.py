@@ -24,6 +24,7 @@ from typing import (
     Any,
     Awaitable,
     Callable,
+    cast,
     Dict,
     List,
     Optional,
@@ -31,7 +32,6 @@ from typing import (
     Type,
     TypeVar,
     Union,
-    cast,
 )
 from unittest.mock import Mock
 

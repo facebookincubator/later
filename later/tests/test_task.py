@@ -16,7 +16,7 @@ from __future__ import annotations
 import asyncio
 from contextlib import suppress
 from typing import cast
-from unittest.mock import Mock, call
+from unittest.mock import call, Mock
 
 import later
 from later.unittest import TestCase
