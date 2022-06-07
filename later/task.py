@@ -57,12 +57,21 @@ class TaskSentinel(asyncio.Task):
 async def cancel(fut: asyncio.Future) -> None:
     """
     Cancel a future/task and await for it to cancel.
-    This method suppresses the CancelledError
+    This method suppresses the CancelledError unless it is itself cancelled.
     """
-    fut.cancel()
-    await asyncio.sleep(0)  # let loop cycle
-    with suppress(asyncio.CancelledError):
-        await fut
+    if not fut.cancel():
+        return  # task is already done and can't be cancelled.
+    exception = None
+    # Since tasks may take a while to shutdown, guard against us being cancelled.
+    while not fut.cancelled():
+        try:
+            await asyncio.shield(fut)  # be nice, no double cancel signals
+        except asyncio.CancelledError as ex:
+            if not fut.cancelled():
+                exception = ex  # save exception to complete cancellation contract
+    await asyncio.sleep(0)  # let loop cycle, give callbacks a chance to run
+    if exception:
+        raise exception from None  # complete the cancellation contract
 
 
 def as_task(func: F) -> F:
@@ -279,6 +288,7 @@ class Watcher:
 
                 except asyncio.CancelledError:
                     self.cancel()
+                    raise  # complete the contract
         finally:
             self.running = False
             self._run_preexit_callbacks()
