@@ -35,43 +35,9 @@ class TaskTests(TestCase):
 
     async def test_cancel_task(self) -> None:
         task: asyncio.Task = asyncio.get_running_loop().create_task(asyncio.sleep(500))
-        await asyncio.sleep(0)  # let the task start at least
         await later.cancel(task)
         self.assertTrue(task.done())
         self.assertTrue(task.cancelled())
-
-    async def test_cancel_cancel_task(self) -> None:
-        started, cancelled = False, False
-
-        @later.as_task
-        async def test():
-            nonlocal cancelled, started
-            started = True
-            try:
-                await asyncio.sleep(500)
-            except asyncio.CancelledError:
-                await asyncio.sleep(0.5)
-                cancelled = True
-                raise
-
-        # neat :P
-        cancel_as_task = later.as_task(later.cancel)
-        otask = cast(asyncio.Task, test())  # task created a scheduled.
-        await asyncio.sleep(0)  # let test start
-        self.assertTrue(started)
-        ctask = cast(asyncio.Task, cancel_as_task(otask))
-        await asyncio.sleep(0)  # let the cancel as task start
-        self.assertFalse(otask.cancelled())
-        ctask.cancel()
-        await asyncio.sleep(0)  # Insure the cancel was raised in the ctask
-        self.assertFalse(ctask.cancelled())
-        # we are not cancelled yet, there is a 0.5 sleep in the cancellation flow
-        with self.assertRaises(asyncio.CancelledError):
-            # now our cancel must raise a CancelledError as per contract
-            await ctask
-        self.assertTrue(cancelled)
-        self.assertTrue(ctask.cancelled())
-        self.assertTrue(otask.cancelled())
 
 
 class WatcherTests(TestCase):
@@ -223,11 +189,9 @@ class WatcherTests(TestCase):
         loop = asyncio.get_running_loop()
         task: asyncio.Task = loop.create_task(asyncio.sleep(500))
 
-        with self.assertRaises(asyncio.TimeoutError):
-            # the later watcher shouldn't suppress cancellation
-            async with later.timeout(0.2):
-                async with later.Watcher() as watcher:
-                    watcher.watch(task)
+        async with later.timeout(0.2):
+            async with later.Watcher(cancel_timeout=0.5) as watcher:
+                watcher.watch(task)
         self.assertTrue(task.cancelled())
 
     async def test_watcher_cancel_task_badly(self) -> None:
