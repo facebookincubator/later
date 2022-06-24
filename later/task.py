@@ -57,12 +57,48 @@ class TaskSentinel(asyncio.Task):
 async def cancel(fut: asyncio.Future) -> None:
     """
     Cancel a future/task and await for it to cancel.
-    This method suppresses the CancelledError
+    If the fut is already done() this is a no-op
+    If everything goes well this returns None.
+
+    If this coroutine is cancelled, we wait for the passed in argument to cancel
+    but we will raise the CancelledError as per Cancellation Contract, Unless the task
+    doesn't cancel correctly then we could raise other exceptions.
+
+    If the task raises an exception during cancellation we re-raise it
+    if the task completes instead of cancelling we raise a InvalidStateError
     """
+    if fut.done():
+        return  # nothing to do
     fut.cancel()
-    await asyncio.sleep(0)  # let loop cycle
-    with suppress(asyncio.CancelledError):
-        await fut
+    exc: Optional[asyncio.CancelledError] = None
+    while not fut.done():
+        shielded = asyncio.shield(fut)
+        try:
+            await asyncio.wait([shielded])
+        except asyncio.CancelledError as ex:
+            exc = ex
+        finally:
+            # Insure we handle the exception/value that may exist on the shielded task
+            # This will prevent errors logged to the asyncio logger
+            if (
+                shielded.done()
+                and not shielded.cancelled()
+                and not shielded.exception()
+            ):
+                shielded.result()
+    if fut.cancelled():
+        if exc is None:
+            return
+        # we were cancelled also so honor the contract
+        raise exc from None
+    # Some exception thrown during cancellation
+    ex = fut.exception()
+    if ex is not None:
+        raise ex from None
+    # fut finished instead of cancelled, wat?
+    raise asyncio.InvalidStateError(
+        f"task didn't raise CancelledError on cancel: {fut} had result {fut.result()}"
+    )
 
 
 def as_task(func: F) -> F:

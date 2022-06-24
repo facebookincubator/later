@@ -39,6 +39,94 @@ class TaskTests(TestCase):
         self.assertTrue(task.done())
         self.assertTrue(task.cancelled())
 
+    async def test_cancel_raises_other_exception(self) -> None:
+        started = False
+
+        @later.as_task
+        async def _coro():
+            nonlocal started
+            started = True
+            try:
+                await asyncio.sleep(500)
+            except asyncio.CancelledError:
+                raise TypeError
+
+        task: asyncio.Task = cast(asyncio.Task, _coro())
+        await asyncio.sleep(0)
+        self.assertTrue(started)
+        with self.assertRaises(TypeError):
+            await later.cancel(task)
+        self.assertTrue(task.done())
+        self.assertFalse(task.cancelled())
+
+    async def test_cancel_already_done_task(self) -> None:
+        started = False
+
+        @later.as_task
+        async def _coro():
+            nonlocal started
+            started = True
+
+        task: asyncio.Task = cast(asyncio.Task, _coro())
+        await asyncio.sleep(0)
+        self.assertTrue(started)
+        self.assertTrue(task.done())
+        await later.cancel(task)
+
+    async def test_cancel_task_completes(self) -> None:
+        started = False
+
+        @later.as_task
+        async def _coro():
+            nonlocal started
+            started = True
+            try:
+                await asyncio.sleep(500)
+            except asyncio.CancelledError:
+                return 5
+
+        task: asyncio.Task = cast(asyncio.Task, _coro())
+        await asyncio.sleep(0)
+        self.assertTrue(started)
+        with self.assertRaises(asyncio.InvalidStateError):
+            await later.cancel(task)
+        self.assertTrue(task.done())
+        self.assertFalse(task.cancelled())
+
+    async def test_cancel_when_cancelled(self) -> None:
+        started, cancelled = False, False
+
+        @later.as_task
+        async def test():
+            nonlocal cancelled, started
+            started = True
+            try:
+                await asyncio.sleep(500)
+            except asyncio.CancelledError:
+                cancelled = True
+                await asyncio.sleep(0.5)
+                raise
+
+        # neat :P
+        cancel_as_task = later.as_task(later.cancel)
+        otask = cast(asyncio.Task, test())  # task created a scheduled.
+        await asyncio.sleep(0)  # let test start
+        self.assertTrue(started)
+        ctask = cast(asyncio.Task, cancel_as_task(otask))
+        await asyncio.sleep(0)  # let the cancel as task start
+        self.assertFalse(otask.cancelled())
+        ctask.cancel()
+        await asyncio.sleep(0)  # Insure the cancel was raised in the ctask
+        self.assertTrue(cancelled)
+        # Not done yet since the orignal task is sleeping
+        self.assertFalse(ctask.cancelled())
+        # we are not cancelled yet, there is a 0.5 sleep in the cancellation flow
+        with self.assertRaises(asyncio.CancelledError):
+            # now our cancel must raise a CancelledError as per contract
+            await ctask
+        self.assertTrue(ctask.cancelled())
+        self.assertTrue(otask.cancelled())
+
 
 class WatcherTests(TestCase):
     async def test_empty_watcher(self) -> None:
