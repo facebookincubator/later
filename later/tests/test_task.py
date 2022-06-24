@@ -188,10 +188,20 @@ class WatcherTests(TestCase):
     async def test_watcher_canceled_parent_aexit(self) -> None:
         loop = asyncio.get_running_loop()
         task: asyncio.Task = loop.create_task(asyncio.sleep(500))
+        with self.assertRaises(asyncio.TimeoutError):
+            async with later.timeout(0.2):
+                async with later.Watcher() as watcher:
+                    watcher.watch(task)
+        self.assertTrue(task.cancelled())
 
-        async with later.timeout(0.2):
-            async with later.Watcher(cancel_timeout=0.5) as watcher:
+    async def test_watcher_raise_in_body(self) -> None:
+        loop = asyncio.get_running_loop()
+        task: asyncio.Task = loop.create_task(asyncio.sleep(500))
+        with self.assertRaises(RuntimeError):
+            async with later.Watcher() as watcher:
                 watcher.watch(task)
+                await asyncio.sleep(0)
+                raise RuntimeError
         self.assertTrue(task.cancelled())
 
     async def test_watcher_cancel_task_badly(self) -> None:

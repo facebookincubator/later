@@ -115,6 +115,8 @@ class Watcher:
 
         context is wether to expose this Watcher via contextvars now or at __aenter__
         """
+        # TODO: fried allow for done tasks to pass through instead of treating them as
+        # failed
         if context:
             WATCHER_CONTEXT.set(self)
         self._cancel_timeout = cancel_timeout
@@ -254,31 +256,30 @@ class Watcher:
         cancel_task: asyncio.Task = self.loop.create_task(self._cancelled.wait())
         changed_task: asyncio.Task = START_TASK
         try:
+            # an exception was raised in the body of the watcher.
+            # just return, cancel any tasks.
+            if exc is not None:
+                return False
             self.running = True
             while not self._cancelled.is_set():
                 if self._scheduled:
                     await self._run_scheduled()
                 if changed_task is START_TASK or changed_task.done():
                     changed_task = self.loop.create_task(self._tasks_changed.wait())
-                try:
-                    if not self._tasks:
-                        return False  # There are no tasks just exit.
-                    done, pending = await asyncio.wait(
-                        [cancel_task, changed_task, *self._tasks.keys()],
-                        return_when=asyncio.FIRST_COMPLETED,
-                    )
-
-                    if cancel_task in done:
-                        break  # Don't bother doing fixes just break out
-                    for task in done:
-                        task = cast(asyncio.Task, task)
-                        if task is changed_task:
-                            continue
-                        else:
-                            await self._fix_task(task)
-
-                except asyncio.CancelledError:
-                    self.cancel()
+                if not self._tasks:
+                    return False  # There are no tasks just exit.
+                done, pending = await asyncio.wait(
+                    [cancel_task, changed_task, *self._tasks.keys()],
+                    return_when=asyncio.FIRST_COMPLETED,
+                )
+                if cancel_task in done:
+                    break  # Don't bother doing fixes just break out
+                for task in done:
+                    task = cast(asyncio.Task, task)
+                    if task is changed_task:
+                        continue
+                    else:
+                        await self._fix_task(task)
         finally:
             self.running = False
             self._run_preexit_callbacks()
