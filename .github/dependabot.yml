@@ -1,0 +1,7 @@
+version: 2
+updates:
+  - package-ecosystem: "github-actions"
+    # Workflow files in .github/workflows will be checked
+    directory: "/"
+    schedule:
+      interval: "daily"
