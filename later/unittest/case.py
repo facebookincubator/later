@@ -70,6 +70,8 @@ class TestTask(asyncio.Task):
             self._managed = True
         return super().exception()
 
+    # pyre-fixme[14]: `add_done_callback` overrides method defined in `Future`
+    #  inconsistently.
     def add_done_callback(self, fn, *, context=None) -> None:
         @wraps(fn)
         def mark_managed(fut):
