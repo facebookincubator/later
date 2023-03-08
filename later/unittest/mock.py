@@ -13,10 +13,15 @@
 # under the License.
 from __future__ import annotations
 
+import sys
+
 from typing import Any
 from unittest.mock import call, DEFAULT
 
-from .backport.mock import AsyncMock, create_autospec, MagicMock, Mock, patch
+if sys.version_info >= (3, 9):  # pragma: nocover
+    from unittest.mock import AsyncMock, create_autospec, MagicMock, Mock, patch
+else:  # pragma: nocover
+    from .backport.mock import AsyncMock, create_autospec, MagicMock, Mock, patch
 
 
 __all__ = [
