@@ -16,7 +16,8 @@ from __future__ import annotations
 import asyncio
 import contextvars
 import logging
-from contextlib import suppress
+
+from collections.abc import Coroutine, Generator
 from functools import partial, wraps
 from inspect import isawaitable
 from types import TracebackType
@@ -40,6 +41,7 @@ from .event import BiDirectionalEvent
 
 FixerType = Callable[[asyncio.Task], Union[asyncio.Task, Awaitable[asyncio.Task]]]
 logger = logging.getLogger(__name__)
+T = TypeVar("T")
 F = TypeVar("F", bound=Callable[..., Awaitable[Any]])
 
 __all__: Sequence[str] = ["Watcher", "START_TASK", "TaskSentinel", "cancel", "as_task"]
@@ -139,20 +141,25 @@ class Watcher:
     _shielded_tasks: Dict[asyncio.Task, asyncio.Future]
     loop: asyncio.AbstractEventLoop
     running: bool
+    done_ok: bool
 
     @staticmethod
     def get() -> Watcher:
         return WATCHER_CONTEXT.get()
 
-    def __init__(self, *, cancel_timeout: float = 300, context: bool = False) -> None:
+    def __init__(
+        self,
+        *,
+        cancel_timeout: float = 300,
+        context: bool = False,
+        done_ok: bool = True,
+    ) -> None:
         """
         cancel_timeout is the time in seconds we will wait after cancelling all
         the tasks watched by this watcher.
 
         context is wether to expose this Watcher via contextvars now or at __aenter__
         """
-        # TODO: fried allow for done tasks to pass through instead of treating them as
-        # failed
         if context:
             WATCHER_CONTEXT.set(self)
         self._cancel_timeout = cancel_timeout
@@ -163,6 +170,7 @@ class Watcher:
         self._preexit_callbacks = []
         self._shielded_tasks = {}
         self.running = False
+        self.done_ok = done_ok
 
     async def _run_scheduled(self) -> None:
         scheduled = self._scheduled
@@ -260,6 +268,13 @@ class Watcher:
             self._tasks[task] = fixer
         self._tasks_changed.set_nowait()
 
+    def create_task(
+        self, coro: Generator[Any, None, T] | Coroutine[Any, Any, T], **kws
+    ) -> asyncio.Task[T]:
+        t = asyncio.create_task(coro, **kws)
+        self.watch(t)
+        return t
+
     def cancel(self) -> None:
         """
         Stop the watcher and cause it to cancel all the tasks in its care.
@@ -335,6 +350,10 @@ class Watcher:
         exc = task.exception()
         if exc is None:
             task.result()
+            if self.done_ok:
+                # clean up the task is done. And thats okay.
+                del self._tasks[task]
+                return
         fixer = self._tasks[task]
         if fixer is None:
             raise RuntimeError(f"{task} finished and there is no fixer!") from exc

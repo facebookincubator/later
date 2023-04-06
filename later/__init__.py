@@ -18,7 +18,7 @@ from .event import BiDirectionalEvent
 from .task import as_task, cancel, START_TASK, Watcher, WatcherError
 
 
-__version__ = "23.03.1"
+__version__ = "23.04.1"
 __all__ = [
     "BiDirectionalEvent",
     "START_TASK",

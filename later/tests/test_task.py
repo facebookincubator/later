@@ -172,6 +172,12 @@ class WatcherTests(TestCase):
         with suppress(asyncio.CancelledError):
             await task
 
+    async def test_create_task(self) -> None:
+        async with later.Watcher() as w:
+            w.create_task(asyncio.sleep(0.1))
+            w.create_task(asyncio.sleep(0.1))
+            w.create_task(asyncio.sleep(0.1))
+
     def test_bad_watch_call(self) -> None:
         w = later.Watcher()
         with self.assertRaises(ValueError):
@@ -182,7 +188,7 @@ class WatcherTests(TestCase):
 
         task: asyncio.Task = loop.create_task(asyncio.sleep(0.1))
         with self.assertRaises(RuntimeError):
-            async with later.Watcher() as watcher:
+            async with later.Watcher(done_ok=False) as watcher:
                 watcher.watch(task)
 
     async def test_watcher_cancel_timeout(self) -> None:
@@ -216,7 +222,7 @@ class WatcherTests(TestCase):
         fixer.side_effect = [replacement_task, None]
         task: asyncio.Task = loop.create_task(asyncio.sleep(0.1))
         with self.assertRaises(TypeError):  # from fixer returning None
-            async with later.Watcher() as watcher:
+            async with later.Watcher(done_ok=False) as watcher:
                 watcher.watch(task, fixer)
 
         self.assertTrue(fixer.called)
@@ -229,7 +235,7 @@ class WatcherTests(TestCase):
         fixer.side_effect = [replacement_task, None]
         task: asyncio.Task = loop.create_task(asyncio.sleep(0.1))
         with self.assertRaises(TypeError):  # from fixer returning None
-            async with later.Watcher() as watcher:
+            async with later.Watcher(done_ok=False) as watcher:
                 watcher.watch(task, fixer)
 
         self.assertTrue(fixer.called)
@@ -266,7 +272,7 @@ class WatcherTests(TestCase):
         fixer.side_effect = [task, None]
 
         with self.assertRaises(TypeError):  # from fixer returning None
-            async with later.Watcher() as watcher:
+            async with later.Watcher(done_ok=False) as watcher:
                 watcher.watch(fixer=fixer)
 
         self.assertTrue(fixer.called)
