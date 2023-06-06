@@ -240,9 +240,14 @@ class IsolatedAsyncioTestCase(TestCase):
             for task in to_cancel:
                 task.cancel()
 
-            loop.run_until_complete(
-                asyncio.gather(*to_cancel, loop=loop, return_exceptions=True)
-            )
+            if sys.version_info >= (3, 10):
+                loop.run_until_complete(
+                    asyncio.gather(*to_cancel, return_exceptions=True)
+                )
+            else:
+                loop.run_until_complete(
+                    asyncio.gather(*to_cancel, loop=loop, return_exceptions=True)
+                )
 
             for task in to_cancel:
                 if task.cancelled():
