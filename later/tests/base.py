@@ -12,16 +12,19 @@
 # License for the specific language governing permissions and limitations
 # under the License.
 
+import sys
 import unittest
 
 from later.tests.test_event import Test_BiDirectionalEvent  # noqa: F401
 from later.tests.test_task import TaskTests, WatcherTests  # noqa: F401
 from later.tests.test_version import VersionTests  # noqa: F401
-from later.tests.unittest.backport.test_async_case import (  # noqa: F401
-    TestAsyncCase,
-    TestHangsForever,
-)
-from later.tests.unittest.backport.test_mock import TestPatch  # noqa: F401
+
+if sys.version_info[:2] < (3, 9):
+    from later.tests.unittest.backport.test_async_case import (  # noqa: F401
+        TestAsyncCase,
+        TestHangsForever,
+    )
+    from later.tests.unittest.backport.test_mock import TestPatch  # noqa: F401
 from later.tests.unittest.test_case import (  # noqa: F401
     IgnoreAsyncioErrorsTestCase,
     IgnoreTaskLeaksTestCase,
