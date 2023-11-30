@@ -196,8 +196,8 @@ class WatcherTests(TestCase):
             try:
                 await asyncio.sleep(300)
             except asyncio.CancelledError:
-                pass
-            await asyncio.sleep(2)  # take longer than 2 seconds to cancel
+                await asyncio.sleep(2)
+                raise
 
         loop = asyncio.get_running_loop()
         task = loop.create_task(coro())
@@ -206,7 +206,7 @@ class WatcherTests(TestCase):
                 watcher.watch(task)
                 loop.call_later(0.2, watcher.cancel)
         # insure the task isn't still pending so we don't fail the later TestCase checks
-        task.cancel()
+        await later.cancel(task)
 
     async def test_watcher_cancel(self) -> None:
         loop = asyncio.get_running_loop()
