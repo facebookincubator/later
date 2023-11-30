@@ -19,10 +19,12 @@ test failure.
 from __future__ import annotations
 
 import asyncio
+import asyncio.base_tasks
 import asyncio.coroutines
 import asyncio.futures
 import asyncio.log
 import asyncio.tasks
+import reprlib
 import sys
 import unittest.mock as mock
 from functools import wraps
@@ -50,9 +52,10 @@ class TestTask(asyncio.Task):
         self._coro_repr = asyncio.coroutines._format_coroutine(coro)
         super().__init__(coro, *args, **kws)
 
+    @reprlib.recursive_repr()
     def __repr__(self) -> str:
         # pyre-fixme[16]: `TestTask` has no attribute `_repr_info`.
-        repr_info = self._repr_info()
+        repr_info = asyncio.base_tasks._task_repr_info(self)
         coro = f"coro={self._coro_repr}"
         if atleastpy38:  # py3.8 added name=
             repr_info[2] = coro  # pragma: nocover
@@ -119,8 +122,8 @@ class TestTask(asyncio.Task):
         super().__del__()
 
 
-def task_factory(loop, coro) -> TestTask:
-    task = TestTask(coro, loop=loop)
+def task_factory(loop, coro, *, name=None, context=None) -> TestTask:
+    task = TestTask(coro, loop=loop, name=name, context=context)
     return task
 
 
@@ -169,9 +172,11 @@ class TestCase(AsyncioTestCase):
             _IGNORE_TASK_LEAKS_ATTR,
             getattr(testMethod, _IGNORE_TASK_LEAKS_ATTR, False),
         )
-
-        # pyre-fixme[16]: `TestCase` has no attribute `_asyncioTestLoop`.
-        loop = self._asyncioTestLoop
+        if sys.version_info >= (3, 11):
+            loop = self._asyncioRunner.get_loop()
+        else:
+            # pyre-fixme[16]: `TestCase` has no attribute `_asyncioTestLoop`.
+            loop = self._asyncioTestLoop
         if not ignore_tasks:
             # install our own task factory for monitoring usage
             loop.set_task_factory(task_factory)
@@ -186,10 +191,11 @@ class TestCase(AsyncioTestCase):
             # pyre-fixme[16]: `AsyncioTestCase` has no attribute `_callTestMethod`.
             super()._callTestMethod(testMethod)
 
-        # Lets join the queue to insure all the tasks created by this case
-        # are cleaned up
-        # pyre-fixme[16]: `TestCase` has no attribute `_asyncioCallsQueue`.
-        loop.run_until_complete(self._asyncioCallsQueue.join())
+        if sys.version_info < (3, 11):
+            # Lets join the queue to insure all the tasks created by this case
+            # are cleaned up
+            # pyre-fixme[16]: `TestCase` has no attribute `_asyncioCallsQueue`.
+            loop.run_until_complete(self._asyncioCallsQueue.join())
         left_over_tasks = set(all_tasks(loop)) - set(start_tasks)
         for task in list(left_over_tasks):
             if isinstance(task, TestTask) and task.was_managed():
