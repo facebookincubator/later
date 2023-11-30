@@ -122,8 +122,8 @@ class TestTask(asyncio.Task):
         super().__del__()
 
 
-def task_factory(loop, coro, *, name=None, context=None) -> TestTask:
-    task = TestTask(coro, loop=loop, name=name, context=context)
+def task_factory(loop, coro, **kws) -> TestTask:
+    task = TestTask(coro, loop=loop, **kws)
     return task
 
 
