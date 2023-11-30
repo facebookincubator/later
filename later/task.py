@@ -15,21 +15,29 @@ from __future__ import annotations
 
 import asyncio
 import contextvars
+import functools
 import logging
+import threading
 
 from collections.abc import Coroutine, Generator
 from functools import partial, wraps
 from inspect import isawaitable
 from types import TracebackType
 from typing import (
+    AbstractSet,
     Any,
     Awaitable,
     Callable,
     cast,
     Dict,
+    Hashable,
     List,
+    Mapping,
+    NewType,
     Optional,
+    overload,
     Sequence,
+    Tuple,
     Type,
     TypeVar,
     Union,
@@ -44,7 +52,14 @@ logger = logging.getLogger(__name__)
 T = TypeVar("T")
 F = TypeVar("F", bound=Callable[..., Awaitable[Any]])
 
-__all__: Sequence[str] = ["Watcher", "START_TASK", "TaskSentinel", "cancel", "as_task"]
+__all__: Sequence[str] = [
+    "Watcher",
+    "START_TASK",
+    "TaskSentinel",
+    "cancel",
+    "as_task",
+    "herd",
+]
 
 
 class TaskSentinel(asyncio.Task):
@@ -391,3 +406,119 @@ class Watcher:
             raise WatcherError(
                 "The following tasks didn't cancel cleanly or at all!", bad_tasks
             )
+
+
+CacheKey = NewType("CacheKey", Sequence[Hashable])
+ArgID = Union[int, str]
+
+
+class _CountTask:
+    """So herd can track herd size and task together for cancellation"""
+
+    task: Optional[asyncio.Task] = None
+    count: int = 0
+
+
+def _get_local(local: threading.local, field: str) -> Dict[CacheKey, object]:
+    """
+    helper for attempting to fetch a named attr from a threading.local
+    """
+    try:
+        return cast(Dict[CacheKey, object], getattr(local, field))
+    except AttributeError:
+        container: Dict[CacheKey, object] = {}
+        setattr(local, field, container)
+        return container
+
+
+def _build_key(
+    args: Tuple[object, ...],
+    kwargs: Mapping[str, object],
+    ignored_args: Optional[AbstractSet[ArgID]] = None,
+) -> CacheKey:
+    """
+    Build a key for caching Hashable args and kwargs.
+    Allow for not including certain fields from args or kwargs
+    """
+    if not ignored_args:
+        # pyre-fixme[45]: Cannot instantiate abstract class `CacheKey`.
+        return CacheKey((args, tuple(sorted(kwargs.items()))))
+
+    # If we do want to ignore something then do so
+    # pyre-fixme[45]: Cannot instantiate abstract class `CacheKey`.
+    return CacheKey(
+        (
+            tuple((value for idx, value in enumerate(args) if idx not in ignored_args)),
+            tuple(
+                (item for item in sorted(kwargs.items()) if item[0] not in ignored_args)
+            ),
+        )
+    )
+
+
+@overload  # noqa: 811
+def herd(
+    fn: F, *, ignored_args: Optional[AbstractSet[ArgID]] = None
+) -> F:  # pragma: nocover
+    ...
+
+
+@overload  # noqa: 811
+def herd(
+    fn: Optional[F] = None, *, ignored_args: Optional[AbstractSet[ArgID]] = None
+) -> Callable[[F], F]:  # pragma: nocover
+    ...
+
+
+def herd(
+    fn=None,
+    *,
+    ignored_args: Optional[AbstractSet[ArgID]] = None,
+):  # noqa: 811
+    """
+    Provide a simple thundering herd protection as a decorator.
+    if requests comes in while and existing request with those same args is pending,
+    wait for the pending request and return its results.
+
+    ignored_args are arguments that should be ignored for matching with
+    existing requests. Use arg position or kwargs name.
+    Example: a client arg for when multiple clients exists but the request hits the same
+    backend.
+
+    Each member of the herd is "shielded" from cancellation effecting other herd members
+    """
+
+    def decorator(fn: F) -> F:
+        local = threading.local()
+
+        @functools.wraps(fn)
+        async def wrapped(*args, **kwargs):
+            pending = cast(Dict[CacheKey, _CountTask], _get_local(local, "pending"))
+            request = _build_key(tuple(args), kwargs, ignored_args)
+            count_task = pending.setdefault(request, _CountTask())
+            count_task.count += 1
+            task = count_task.task  # thanks pyre
+            if task is None:
+                count_task.task = task = asyncio.create_task(fn(*args, **kwargs))
+            try:
+                return await asyncio.shield(task)
+            except asyncio.CancelledError:
+                if count_task.count == 1:
+                    await cancel(task)
+                raise  # always re-raise CancelledError
+            finally:
+                count_task.count -= 1
+                # Lets destroy the herd on last member exit or
+                # First success member exit. This is to mirror the original
+                # herd behavior that tore down the herd after the original call exited
+                if count_task.count == 0 or not task.cancelled():
+                    if request in pending and pending[request] is count_task:
+                        del pending[request]
+
+        return cast(F, wrapped)
+
+    if fn and callable(fn):
+        # pyre-fixme[6]: For 1st param expected `F` but got `(...) -> object`.
+        return decorator(fn)
+
+    return decorator

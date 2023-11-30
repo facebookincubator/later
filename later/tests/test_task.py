@@ -358,3 +358,116 @@ class WatcherTests(TestCase):
             watcher.cancel()
 
         await task
+
+
+class HerdTests(TestCase):
+    async def test_herd_cancellation(self) -> None:
+        called = 0
+        original_cancelled = False
+
+        @later.herd
+        # pyre-fixme[3]: Return type must be annotated.
+        # pyre-fixme[2]: Parameter must be annotated.
+        async def fun(event):
+            nonlocal called
+            nonlocal original_cancelled
+            called += 1
+            try:
+                await event.wait()
+            except asyncio.CancelledError:
+                original_cancelled = True
+                raise
+
+        event = asyncio.Event()
+        call1 = asyncio.create_task(fun(event))
+        call2 = asyncio.create_task(fun(event))
+
+        done, pending = await asyncio.wait({call1, call2}, timeout=0.05)
+        self.assertFalse(done)
+        self.assertEqual(called, 1)
+        self.assertFalse(original_cancelled)
+
+        await later.cancel(call1)
+        self.assertFalse(original_cancelled)
+
+        # even with the first call cancelled call2 can continue
+        done, pending = await asyncio.wait([call2], timeout=0.05)
+        self.assertFalse(done)
+
+        # Only after there is only one pending left do we allow the original task
+        # to be cancelled.
+        await later.cancel(call2)
+        self.assertTrue(original_cancelled)
+
+    async def test_herd(self) -> None:
+        called = 0
+        waited = 0
+
+        @later.herd(ignored_args={1})
+        # pyre-fixme[3]: Return type must be annotated.
+        # pyre-fixme[2]: Parameter must be annotated.
+        async def fun(event, ignored_arg):
+            nonlocal called
+            called += 1
+            await event.wait()
+            nonlocal waited
+            waited += 1
+
+        event = asyncio.Event()
+        call1 = asyncio.create_task(fun(event, object()))
+        call2 = asyncio.create_task(fun(event, object()))
+        call3 = asyncio.create_task(fun(event, object()))
+
+        done, pending = await asyncio.wait({call1, call2, call3}, timeout=0.05)
+        self.assertFalse(done)
+        self.assertEqual(called, 1)
+        self.assertEqual(waited, 0)
+
+        event.set()
+        done, pending = await asyncio.wait({call1, call2, call3})
+        self.assertTrue(done)
+        self.assertFalse(pending)
+        self.assertEqual(called, 1)
+        self.assertEqual(waited, 1)
+
+    async def test_herd_exception(self) -> None:
+        called = 0
+
+        @later.herd
+        # pyre-fixme[3]: Return type must be annotated.
+        # pyre-fixme[2]: Parameter must be annotated.
+        async def fun(event):
+            nonlocal called
+            called += 1
+            await event.wait()
+            raise RuntimeError
+
+        event = asyncio.Event()
+        call1 = asyncio.create_task(fun(event))
+        call2 = asyncio.create_task(fun(event))
+
+        done, pending = await asyncio.wait({call1, call2}, timeout=0.05)
+        self.assertFalse(done)
+        self.assertEqual(called, 1)
+
+        event.set()
+        done, pending = await asyncio.wait({call1, call2})
+        self.assertTrue(done)
+        self.assertFalse(pending)
+        self.assertEqual(called, 1)
+        # access the exception so we don't blow up the test
+        with self.assertRaises(RuntimeError):
+            await call1
+
+        with self.assertRaises(RuntimeError):
+            await call2
+
+    def test_herd_usage_no_args(self) -> None:
+        @later.herd
+        async def hax(test: int) -> None:
+            """docstring"""
+            ...
+
+        # Testing wraps
+        self.assertEqual(hax.__name__, "hax")
+        self.assertEqual(hax.__doc__, "docstring")
