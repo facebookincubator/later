@@ -1,0 +1,39 @@
+[build-system]
+requires = ["flit-core >= 3.8"]
+build-backend = "flit_core.buildapi"
+
+[project]
+name = "later"
+dynamic = ["version", "description"]
+readme = "README.rst"
+authors = [
+    {name="Meta Platforms, Inc"},
+    {name="Jason Fried", email="fried@meta.com"},
+]
+license = {file="LICENSE"}
+keywords = ["asyncio", "later"]
+classifiers = [
+    "Development Status :: 5 - Production/Stable",
+    "Framework :: AsyncIO",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: Apache Software License",
+    "License :: OSI Approved :: Apache Software License",
+    "Operating System :: POSIX",
+    "Operating System :: MacOS :: MacOS X",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+    "Topic :: Software Development :: Testing",
+]
+
+requires-python = ">=3.7"
+dependencies = [
+    "async-timeout >= 2.0.0, < 5.0.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "async-timeout==3.0.1",
+    "coverage==4.5.4",
+]
+
+[project.urls]
+Github = "https://github.com/facebookincubator/later"

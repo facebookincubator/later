@@ -12,13 +12,15 @@
 # License for the specific language governing permissions and limitations
 # under the License.
 
+"""A toolbox for asyncio services"""
+
 from async_timeout import timeout
 
 from .event import BiDirectionalEvent
 from .task import as_task, cancel, herd, START_TASK, Watcher, WatcherError
 
 
-__version__ = "23.11.29"
+__version__ = "23.11.30"
 __all__ = [
     "BiDirectionalEvent",
     "START_TASK",

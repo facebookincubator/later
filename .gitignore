@@ -61,6 +61,7 @@ target/
 #Ipython Notebook
 .ipynb_checkpoints
 
+.python-version
 .venv
 .venv37
 .mypy_cache
