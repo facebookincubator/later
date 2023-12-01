@@ -15,48 +15,43 @@ from __future__ import annotations
 
 import asyncio
 import unittest
-from typing import Any, Optional
+from typing import Any, List
 
 from later.unittest import ignoreAsyncioErrors, ignoreTaskLeaks, TestCase
 
 
-saved_task: Optional[asyncio.Task[Any]] = None
-saved_done_task: Optional[asyncio.Task[Any]] = None
+# This is a place to purposefully produce leaked tasks
+saved_tasks: List[asyncio.Task[Any]] = []
 
 
 class TestTestCase(TestCase):
     @unittest.expectedFailure
     async def test_unmanaged_task_created_in_testmethod(self) -> None:
-        global saved_task
-        saved_task = asyncio.get_running_loop().create_task(asyncio.sleep(10))
+        saved_tasks.append(asyncio.get_running_loop().create_task(asyncio.sleep(10)))
 
     async def test_managed_task_done(self) -> None:
-        global saved_done_task
-        saved_done_task = asyncio.get_running_loop().create_task(
-            asyncio.sleep(0.5, "test")
-        )
-        await saved_done_task
+        task = asyncio.get_running_loop().create_task(asyncio.sleep(0.5, "test"))
+        saved_tasks.append(task)
+        await task
 
-    async def test_managed_task_done_none(self) -> None:
-        global saved_done_task
+    async def test_unmanaged_task_done_none(self) -> None:
+        """None value Done tasks are ignored"""
 
         async def coro(e: asyncio.Event) -> None:
             e.set()
 
         event = asyncio.Event()
-        saved_done_task = asyncio.get_running_loop().create_task(coro(event))
+        saved_tasks.append(asyncio.get_running_loop().create_task(coro(event)))
         await event.wait()
 
     @unittest.expectedFailure
     async def test_unmanaged_task_done_value(self) -> None:
-        global saved_done_task
-
         async def coro(e: asyncio.Event) -> bool:
             e.set()
             return False
 
         event = asyncio.Event()
-        saved_done_task = asyncio.get_running_loop().create_task(coro(event))
+        saved_tasks.append(asyncio.get_running_loop().create_task(coro(event)))
         await event.wait()
 
     @unittest.expectedFailure
@@ -106,8 +101,7 @@ class TestTestCase(TestCase):
         async def coro():
             raise RuntimeError
 
-        # pyre-fixme[16]: `TestTestCase` has no attribute `_task`.
-        self._task = asyncio.get_running_loop().create_task(coro())
+        saved_tasks.append(asyncio.get_running_loop().create_task(coro()))
 
     async def test_forgotten_tasks_done_no_value(self) -> None:
         asyncio.get_running_loop().create_task(asyncio.sleep(0))
@@ -129,8 +123,7 @@ class IgnoreTaskLeaksTestCase(TestCase):
         async def coro():
             raise RuntimeError
 
-        # pyre-fixme[16]: `IgnoreTaskLeaksTestCase` has no attribute `_task`.
-        self._task = asyncio.get_running_loop().create_task(coro())
+        saved_tasks.append(asyncio.get_running_loop().create_task(coro()))
 
 
 if __name__ == "__main__":

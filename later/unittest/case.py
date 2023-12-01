@@ -67,9 +67,7 @@ class TestTask(asyncio.Task):
         return f"<{self.__class__.__name__} {' '.join(repr_info)}>"
 
     def _mark_managed(self):
-        if not self._managed:
-            self._managed = True
-            _unmanaged_tasks.discard(self)
+        self._managed = True
 
     def __await__(self):
         self._mark_managed()
@@ -136,19 +134,18 @@ def all_tasks(loop):
 
     # This is copied from the guts of asyncio.all_tasks
     # Looping the WeakSet since it is possible it fails during iteration
-    _all_tasks = asyncio.tasks._all_tasks
     _get_loop = asyncio.futures._get_loop
     i = 0
     while True:
         try:
-            tasks = list(_all_tasks) + list(_unmanaged_tasks)
+            tasks = list(_unmanaged_tasks)
         except RuntimeError:  # pragma: nocover
             i += 1
             if i >= 1000:
                 raise
-            else:
-                break
-        return {t for t in tasks if _get_loop(t) is loop}
+        else:
+            break
+    return {t for t in tasks if _get_loop(t) is loop}
 
 
 def ignoreAsyncioErrors(test_item: _F) -> _F:
@@ -206,4 +203,5 @@ class TestCase(AsyncioTestCase):
         if left_over_tasks and not ignore_tasks:
             self.assertEqual(set(), left_over_tasks, "left over un-awaited tasks!")
         if error.called and not ignore_error:
-            self.fail(f"asyncio logger.error() was called!\n{error.call_args_list}")
+            errors = "\n\n".join(c[0][0] for c in error.call_args_list)
+            self.fail(f"asyncio logger.error() was called!\n{errors}")
