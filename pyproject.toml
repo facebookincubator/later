@@ -24,7 +24,7 @@ classifiers = [
     "Topic :: Software Development :: Testing",
 ]
 
-requires-python = ">=3.7"
+requires-python = ">=3.8"
 dependencies = [
     "async-timeout >= 2.0.0, < 5.0.0",
 ]
@@ -32,7 +32,7 @@ dependencies = [
 [project.optional-dependencies]
 dev = [
     "async-timeout==4.0.3",
-    "coverage==4.5.4",
+    "coverage==7.3.2",
     "flit==3.9.0",
 ]
 
