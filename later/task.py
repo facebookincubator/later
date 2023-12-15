@@ -11,6 +11,7 @@
 # WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
 # License for the specific language governing permissions and limitations
 # under the License.
+# pyre-strict
 from __future__ import annotations
 
 import asyncio
@@ -19,7 +20,6 @@ import functools
 import logging
 import threading
 
-from collections.abc import Coroutine, Generator
 from functools import partial, wraps
 from inspect import isawaitable
 from types import TracebackType
@@ -29,6 +29,7 @@ from typing import (
     Awaitable,
     Callable,
     cast,
+    Coroutine,
     Dict,
     Hashable,
     List,
@@ -36,6 +37,7 @@ from typing import (
     NewType,
     Optional,
     overload,
+    Protocol,
     Sequence,
     Tuple,
     Type,
@@ -48,9 +50,8 @@ from .event import BiDirectionalEvent
 
 
 FixerType = Callable[[asyncio.Task], Union[asyncio.Task, Awaitable[asyncio.Task]]]
-logger = logging.getLogger(__name__)
+logger: logging.Logger = logging.getLogger(__name__)
 T = TypeVar("T")
-F = TypeVar("F", bound=Callable[..., Awaitable[Any]])
 
 __all__: Sequence[str] = [
     "Watcher",
@@ -65,7 +66,7 @@ __all__: Sequence[str] = [
 class TaskSentinel(asyncio.Task):
     """When you need a done task for typing"""
 
-    def __init__(self):
+    def __init__(self) -> None:
         fake = Mock()
         asyncio.Future.__init__(self, loop=fake)  # typing: ignore, don't create a loop
         asyncio.Future.set_result(self, None)
@@ -118,18 +119,20 @@ async def cancel(fut: asyncio.Future) -> None:
     )
 
 
-def as_task(func: F) -> F:
+def as_task(
+    func: Callable[..., Coroutine[object, object, T]]
+) -> Callable[..., asyncio.Task[T]]:
     """
     Decorate a function, So that when called it is wrapped in a task
     on the running loop.
     """
 
     @wraps(func)
-    def create_task(*args, **kws):
+    def create_task(*args: Any, **kws: Mapping[str, Any]) -> asyncio.Task[T]:
         loop = asyncio.get_running_loop()
         return loop.create_task(func(*args, **kws))
 
-    return cast(F, create_task)
+    return create_task
 
 
 # Sentinel Task
@@ -178,12 +181,12 @@ class Watcher:
         if context:
             WATCHER_CONTEXT.set(self)
         self._cancel_timeout = cancel_timeout
-        self._tasks = {}
-        self._scheduled = []
+        self._tasks: Dict[asyncio.Future, Optional[FixerType]] = {}
+        self._scheduled: List[FixerType] = []
         self._tasks_changed = BiDirectionalEvent()
         self._cancelled = asyncio.Event()
         self._preexit_callbacks = []
-        self._shielded_tasks = {}
+        self._shielded_tasks: Dict[asyncio.Task, asyncio.Future] = {}
         self.running = False
         self.done_ok = done_ok
 
@@ -218,14 +221,16 @@ class Watcher:
         as the one passed in we will cancel it, and await it.
         """
 
-        async def tasks_changed():
+        async def tasks_changed() -> None:
             if self.running:
                 await self._tasks_changed.set()
 
         if shield:
             if task in self._shielded_tasks:
-                del self._tasks[self._shielded_tasks[task]]
-                del self._shielded_tasks[task]
+                shield_task = self._shielded_tasks.pop(task)
+                # no task left behind, lets cancel it for safety
+                await cancel(shield_task)
+                del self._tasks[shield_task]
                 await tasks_changed()
                 return True
         elif fixer is not None:
@@ -277,6 +282,7 @@ class Watcher:
         elif shield:
             if fixer:
                 raise ValueError("`fixer` can not be used with shield=True")
+            # pyre-ignore[1001]: Awaitable assigned is never awaited. This is fine.
             self._shielded_tasks[task] = asyncio.shield(task)
             self._tasks[self._shielded_tasks[task]] = None
         else:
@@ -284,7 +290,9 @@ class Watcher:
         self._tasks_changed.set_nowait()
 
     def create_task(
-        self, coro: Generator[Any, None, T] | Coroutine[Any, Any, T], **kws
+        self,
+        coro: Coroutine[object, object, T],
+        **kws: Any,
     ) -> asyncio.Task[T]:
         t = asyncio.create_task(coro, **kws)
         self.watch(t)
@@ -296,7 +304,9 @@ class Watcher:
         """
         self._cancelled.set()
 
-    def add_preexit_callback(self, callback: Callable[..., None], *args, **kws) -> None:
+    def add_preexit_callback(
+        self, callback: Callable[..., None], *args: Any, **kws: Any
+    ) -> None:
         self._preexit_callbacks.append(partial(callback, *args, **kws))
 
     def _run_preexit_callbacks(self) -> None:
@@ -355,7 +365,7 @@ class Watcher:
             self._shielded_tasks.clear()
         return False
 
-    async def _event_task_cleanup(self, *tasks):
+    async def _event_task_cleanup(self, *tasks: asyncio.Task) -> None:
         for task in tasks:
             if task is not START_TASK:
                 await cancel(task)
@@ -384,16 +394,17 @@ class Watcher:
                 f"{fixer}(task) failed to return a task, returned:" f"{new_task}!"
             ) from exc
 
-    async def _handle_cancel(self):
+    async def _handle_cancel(self) -> None:
         tasks = [task for task in self._tasks if not task.done()]
         if not tasks:
             return
 
+        # pyre-ignore[1001]: Awaitable task is never awaited. This is fine.
         for task in tasks:
             task.cancel()
 
         done, pending = await asyncio.wait(tasks, timeout=self._cancel_timeout)
-        bad_tasks: List[asyncio.Task] = []
+        bad_tasks: List[asyncio.Future] = []
         for task in done:
             if task.cancelled():
                 continue
@@ -456,21 +467,35 @@ def _build_key(
     )
 
 
+class AsyncCallable(Protocol):
+    def __call__(
+        self, fn: Callable[..., Coroutine[object, object, T]]
+    ) -> Callable[..., Coroutine[object, object, T]]:  # pragma: nocover
+        ...
+
+
+FuncType = Callable[..., Coroutine[object, object, T]]
+
+
 @overload  # noqa: 811
 def herd(
-    fn: F, *, ignored_args: Optional[AbstractSet[ArgID]] = None
-) -> F:  # pragma: nocover
+    fn: FuncType[T], *, ignored_args: Optional[AbstractSet[ArgID]] = None
+) -> FuncType[T]:  # pragma: nocover
     ...
 
 
 @overload  # noqa: 811
 def herd(
-    fn: Optional[F] = None, *, ignored_args: Optional[AbstractSet[ArgID]] = None
-) -> Callable[[F], F]:  # pragma: nocover
+    fn: Optional[AsyncCallable] = None,
+    *,
+    ignored_args: Optional[AbstractSet[ArgID]] = None,
+) -> AsyncCallable:  # pragma: nocover
     ...
 
 
+# pyre-ignore[3]: Defining the return type is pointless here
 def herd(
+    # pyre-ignore[2]: This is fine, we don't need types the overloads cover it
     fn=None,
     *,
     ignored_args: Optional[AbstractSet[ArgID]] = None,
@@ -488,11 +513,11 @@ def herd(
     Each member of the herd is "shielded" from cancellation effecting other herd members
     """
 
-    def decorator(fn: F) -> F:
-        local = threading.local()
+    def decorator(fn: FuncType[T]) -> T:
+        local: threading.local = threading.local()
 
         @functools.wraps(fn)
-        async def wrapped(*args, **kwargs):
+        async def wrapped(*args: Any, **kwargs: Any) -> T:
             pending = cast(Dict[CacheKey, _CountTask], _get_local(local, "pending"))
             request = _build_key(tuple(args), kwargs, ignored_args)
             count_task = pending.setdefault(request, _CountTask())
@@ -515,7 +540,7 @@ def herd(
                     if request in pending and pending[request] is count_task:
                         del pending[request]
 
-        return cast(F, wrapped)
+        return wrapped
 
     if fn and callable(fn):
         # pyre-fixme[6]: For 1st param expected `F` but got `(...) -> object`.

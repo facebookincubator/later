@@ -57,7 +57,6 @@ class TestTask(asyncio.Task):
 
     @reprlib.recursive_repr()
     def __repr__(self) -> str:
-        # pyre-fixme[16]: `TestTask` has no attribute `_repr_info`.
         repr_info = asyncio.base_tasks._task_repr_info(self)
         coro = f"coro={self._coro_repr}"
         if atleastpy38:  # py3.8 added name=

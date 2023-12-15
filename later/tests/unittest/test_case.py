@@ -94,6 +94,7 @@ class TestTestCase(TestCase):
         async def sub():
             return 5
 
+        # pyre-ignore[1001]: This is fine we don't await on purpose
         sub()  # don't await
 
     @ignoreTaskLeaks
@@ -114,6 +115,7 @@ class IgnoreAsyncioErrorsTestCase(TestCase):
         async def sub():
             return 5
 
+        # pyre-ignore[1001]: This is fine we don't await on purpose
         sub()  # don't await
 
 

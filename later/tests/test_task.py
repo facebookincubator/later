@@ -11,6 +11,7 @@
 # WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
 # License for the specific language governing permissions and limitations
 # under the License
+# pyre-strict
 from __future__ import annotations
 
 import asyncio
@@ -26,8 +27,7 @@ from later.unittest.mock import AsyncMock
 class TaskTests(TestCase):
     async def test_as_task(self) -> None:
         tsleep = later.as_task(asyncio.sleep)
-        # pep484 is still limited on typing around decorators, best to cast
-        task: asyncio.Task = cast(asyncio.Task, tsleep(500))
+        task = tsleep(500)
         self.assertIsInstance(task, asyncio.Task)
         await later.cancel(task)
         self.assertTrue(task.done())
@@ -43,7 +43,7 @@ class TaskTests(TestCase):
         started = False
 
         @later.as_task
-        async def _coro():
+        async def _coro() -> None:
             nonlocal started
             started = True
             try:
@@ -51,7 +51,7 @@ class TaskTests(TestCase):
             except asyncio.CancelledError:
                 raise TypeError
 
-        task: asyncio.Task = cast(asyncio.Task, _coro())
+        task: asyncio.Task = _coro()
         await asyncio.sleep(0)
         self.assertTrue(started)
         with self.assertRaises(TypeError):
@@ -63,11 +63,11 @@ class TaskTests(TestCase):
         started = False
 
         @later.as_task
-        async def _coro():
+        async def _coro() -> None:
             nonlocal started
             started = True
 
-        task: asyncio.Task = cast(asyncio.Task, _coro())
+        task: asyncio.Task = _coro()
         await asyncio.sleep(0)
         self.assertTrue(started)
         self.assertTrue(task.done())
@@ -77,7 +77,7 @@ class TaskTests(TestCase):
         started = False
 
         @later.as_task
-        async def _coro():
+        async def _coro() -> int | None:
             nonlocal started
             started = True
             try:
@@ -85,7 +85,7 @@ class TaskTests(TestCase):
             except asyncio.CancelledError:
                 return 5
 
-        task: asyncio.Task = cast(asyncio.Task, _coro())
+        task: asyncio.Task = _coro()
         await asyncio.sleep(0)
         self.assertTrue(started)
         with self.assertRaises(asyncio.InvalidStateError):
@@ -97,7 +97,7 @@ class TaskTests(TestCase):
         started, cancelled = False, False
 
         @later.as_task
-        async def test():
+        async def test() -> None:
             nonlocal cancelled, started
             started = True
             try:
@@ -109,7 +109,7 @@ class TaskTests(TestCase):
 
         # neat :P
         cancel_as_task = later.as_task(later.cancel)
-        otask = cast(asyncio.Task, test())  # task created a scheduled.
+        otask = test()  # task created a scheduled.
         await asyncio.sleep(0)  # let test start
         self.assertTrue(started)
         ctask = cast(asyncio.Task, cancel_as_task(otask))
@@ -144,13 +144,13 @@ class WatcherTests(TestCase):
         callback.assert_has_calls([call(1, 2)])
 
     async def test_add_task_and_remove_task(self) -> None:
-        loop = asyncio.get_running_loop()
+        loop: asyncio.AbstractEventLoop = asyncio.get_running_loop()
 
         def fixer(orig_task: asyncio.Task) -> asyncio.Task:
             return loop.create_task(asyncio.sleep(0.5))
 
         task: asyncio.Task = loop.create_task(asyncio.sleep(10))
-        watcher = later.Watcher(context=True)
+        watcher: later.Watcher = later.Watcher(context=True)
         watcher.watch(fixer=fixer)
 
         async def work() -> None:
@@ -323,9 +323,9 @@ class WatcherTests(TestCase):
             watcher.watch(asyncio.sleep(1))
 
     async def test_watcher_context(self) -> None:
-        loop = asyncio.get_running_loop()
+        loop: asyncio.AbstractEventLoop = asyncio.get_running_loop()
 
-        def start_a_task():
+        def start_a_task() -> None:
             later.Watcher.get().watch(loop.create_task(asyncio.sleep(5)))
 
         async with later.Watcher() as watcher:
@@ -333,9 +333,9 @@ class WatcherTests(TestCase):
             start_a_task()
 
     async def test_watcher_context_at_init(self) -> None:
-        loop = asyncio.get_running_loop()
+        loop: asyncio.AbstractEventLoop = asyncio.get_running_loop()
 
-        def start_a_task():
+        def start_a_task() -> None:
             later.Watcher.get().watch(loop.create_task(asyncio.sleep(5)))
 
         watcher = later.Watcher(context=True)
