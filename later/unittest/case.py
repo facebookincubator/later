@@ -31,11 +31,7 @@ import weakref
 from functools import wraps
 from typing import Any, Callable, TypeVar
 
-
-if sys.version_info[:2] >= (3, 9):  # pragma: nocover
-    from unittest import IsolatedAsyncioTestCase as AsyncioTestCase
-else:  # pragma: nocover
-    from .backport.async_case import IsolatedAsyncioTestCase as AsyncioTestCase
+from unittest import IsolatedAsyncioTestCase as AsyncioTestCase
 
 
 _F = TypeVar("_F", bound=Callable[..., Any])
