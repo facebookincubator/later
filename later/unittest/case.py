@@ -30,7 +30,6 @@ import unittest.mock as mock
 import weakref
 from functools import wraps
 from typing import Any, Callable, TypeVar
-
 from unittest import IsolatedAsyncioTestCase as AsyncioTestCase
 
 

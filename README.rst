@@ -23,10 +23,6 @@ later offers the following functions:
         - `Watcher` - Watch tasks and ensure they don't die - take action when they do
     - **asyncio** Unittesting enhancements
         - `TestCase` - Use in place of `IsolatedAsyncioTestCase` for more wins
-        - `IsolatedAsyncioTestCase` is backported for 3.7 users
-
-
-`later` currently backports 3.8's `async_case` + `mock` libraries for 3.7 users.
 
 License
 ==========
