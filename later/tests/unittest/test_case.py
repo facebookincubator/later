@@ -21,7 +21,7 @@ from later.unittest import ignoreAsyncioErrors, ignoreTaskLeaks, TestCase
 
 
 # This is a place to purposefully produce leaked tasks
-saved_tasks: List[asyncio.Task[Any]] = []
+saved_tasks: List[asyncio.Task] = []
 
 
 class TestTestCase(TestCase):
@@ -66,7 +66,7 @@ class TestTestCase(TestCase):
         t = asyncio.get_running_loop().create_task(asyncio.sleep(10))
         x = False
 
-        def callback(fut):
+        def callback(fut: asyncio.Task) -> None:
             nonlocal x
             x = True
 
@@ -76,7 +76,7 @@ class TestTestCase(TestCase):
         self.assertTrue(x, "callback was executed")
 
     async def test_task_exception(self) -> None:
-        async def coro():
+        async def coro() -> None:
             raise RuntimeError
 
         t = asyncio.get_running_loop().create_task(coro())
@@ -91,7 +91,7 @@ class TestTestCase(TestCase):
 
     @ignoreAsyncioErrors
     async def test_ignore_asyncio_error(self) -> None:
-        async def sub():
+        async def sub() -> int:
             return 5
 
         # pyre-ignore[1001]: This is fine we don't await on purpose
@@ -99,7 +99,7 @@ class TestTestCase(TestCase):
 
     @ignoreTaskLeaks
     async def test_ignore_task_leaks(self) -> None:
-        async def coro():
+        async def coro() -> None:
             raise RuntimeError
 
         saved_tasks.append(asyncio.get_running_loop().create_task(coro()))
@@ -112,7 +112,7 @@ class TestTestCase(TestCase):
 @ignoreAsyncioErrors
 class IgnoreAsyncioErrorsTestCase(TestCase):
     async def test_ignore_asyncio_error_on_case_class(self) -> None:
-        async def sub():
+        async def sub() -> int:
             return 5
 
         # pyre-ignore[1001]: This is fine we don't await on purpose
@@ -122,7 +122,7 @@ class IgnoreAsyncioErrorsTestCase(TestCase):
 @ignoreTaskLeaks
 class IgnoreTaskLeaksTestCase(TestCase):
     async def test_ignore_task_leaks_on_case_class(self) -> None:
-        async def coro():
+        async def coro() -> None:
             raise RuntimeError
 
         saved_tasks.append(asyncio.get_running_loop().create_task(coro()))

@@ -28,23 +28,46 @@ import reprlib
 import sys
 import unittest.mock as mock
 import weakref
+from contextvars import Context
 from functools import wraps
-from typing import Any, Callable, TypeVar
+from typing import (
+    AbstractSet,
+    Callable,
+    Coroutine,
+    Generator,
+    Generic,
+    TYPE_CHECKING,
+    TypeVar,
+)
 from unittest import IsolatedAsyncioTestCase as AsyncioTestCase
 
 
-_F = TypeVar("_F", bound=Callable[..., Any])
+_T = TypeVar("_T")
+_F = TypeVar("_F", bound=Callable[..., object])
 _IGNORE_TASK_LEAKS_ATTR = "__later_testcase_ignore_tasks__"
 _IGNORE_AIO_ERRS_ATTR = "__later_testcase_ignore_asyncio__"
 atleastpy38: bool = sys.version_info[:2] >= (3, 8)
 _unmanaged_tasks: weakref.WeakSet[asyncio.Task] = weakref.WeakSet()
 
 
-class TestTask(asyncio.Task):
+# We can get rid of this when we drop support for 3.8
+if TYPE_CHECKING:  # pragma: nocover
+
+    class _BaseTask(asyncio.Task[_T]):
+        pass
+
+else:
+
+    class _BaseTask(Generic[_T], asyncio.Task):
+        pass
+
+
+class TestTask(_BaseTask[_T]):
     _managed: bool = False
     _coro_repr: str
 
-    def __init__(self, coro, *args, **kws) -> None:
+    # pyre-ignore[2]: We don't case *args and **kws has no type they are passed through
+    def __init__(self, coro: Coroutine[object, object, _T], *args, **kws) -> None:
         # pyre-fixme[16]: Module `coroutines` has no attribute `_format_coroutine`.
         self._coro_repr = asyncio.coroutines._format_coroutine(coro)
         _unmanaged_tasks.add(self)
@@ -60,26 +83,28 @@ class TestTask(asyncio.Task):
             repr_info[1] = coro  # pragma: nocover
         return f"<{self.__class__.__name__} {' '.join(repr_info)}>"
 
-    def _mark_managed(self):
+    def _mark_managed(self) -> None:
         self._managed = True
 
-    def __await__(self):
+    def __await__(self) -> Generator[object, None, _T]:
         self._mark_managed()
         return super().__await__()
 
-    def result(self):
+    def result(self) -> _T:
         if self.done():
             self._mark_managed()
         return super().result()
 
-    def exception(self):
+    def exception(self) -> BaseException | None:
         if self.done():
             self._mark_managed()
         return super().exception()
 
-    def add_done_callback(self, fn, *, context=None) -> None:
+    def add_done_callback(
+        self, fn: Callable[[asyncio.Task], None], *, context: Context | None = None
+    ) -> None:
         @wraps(fn)
-        def mark_managed(fut):
+        def mark_managed(fut: asyncio.Task) -> None:
             self._mark_managed()
             return fn(fut)
 
@@ -117,17 +142,22 @@ class TestTask(asyncio.Task):
         super().__del__()
 
 
-def task_factory(loop, coro, **kws) -> TestTask:
+def task_factory(
+    loop: asyncio.AbstractEventLoop,
+    coro: Coroutine[object, object, object],
+    **kws: object,
+) -> TestTask[object]:
     task = TestTask(coro, loop=loop, **kws)
     return task
 
 
-def all_tasks(loop):
+def all_tasks(loop: asyncio.AbstractEventLoop) -> AbstractSet[asyncio.Task]:
     # This is a copy of asyncio.all_task but returns even done tasks
     # so we can see if they were awaited instead of ignored
 
     # This is copied from the guts of asyncio.all_tasks
     # Looping the WeakSet since it is possible it fails during iteration
+    # pyre-ignore[16]: Module `asyncio.futures` has no attribute `_get_loop`
     _get_loop = asyncio.futures._get_loop
     i = 0
     while True:
@@ -155,7 +185,7 @@ def ignoreTaskLeaks(test_item: _F) -> _F:
 
 
 class TestCase(AsyncioTestCase):
-    def _callTestMethod(self, testMethod) -> None:
+    def _callTestMethod(self, testMethod: Callable[..., None]) -> None:
         ignore_error = getattr(
             self,
             _IGNORE_AIO_ERRS_ATTR,

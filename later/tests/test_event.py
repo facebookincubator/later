@@ -20,10 +20,10 @@ from later.unittest import TestCase
 
 class Test_BiDirectionalEvent(TestCase):
     async def test_end_to_end(self) -> None:
-        event = BiDirectionalEvent()
+        event: BiDirectionalEvent = BiDirectionalEvent()
         woke = False
 
-        async def waiter():
+        async def waiter() -> None:
             nonlocal woke
             while True:
                 # do some work
