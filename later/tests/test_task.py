@@ -87,6 +87,9 @@ class TaskTests(TestCase):
         task: asyncio.Task = _coro()
         await asyncio.sleep(0)
         self.assertTrue(started)
+        # pyre-fixme[6]: For 1st argument expected `Union[Type[Variable[_E (bound to
+        #  BaseException)]], typing.Tuple[Type[Variable[_E (bound to BaseException)]],
+        #  ...]]` but got `Type[InvalidStateError]`.
         with self.assertRaises(asyncio.InvalidStateError):
             await later.cancel(task)
         self.assertTrue(task.done())

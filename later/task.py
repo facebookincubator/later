@@ -113,6 +113,10 @@ async def cancel(fut: asyncio.Future) -> None:
     if ex is not None:
         raise ex from None
     # fut finished instead of cancelled, wat?
+    # pyre-fixme[48]: Expression `asyncio.InvalidStateError("task didn't raise
+    #  CancelledError on cancel: "f"{fut}"" had result "f"{fut.result()}")` has type
+    #  `InvalidStateError` but must extend BaseException.
+    # pyre-fixme[19]: Expected 0 positional arguments.
     raise asyncio.InvalidStateError(
         f"task didn't raise CancelledError on cancel: {fut} had result {fut.result()}"
     )
