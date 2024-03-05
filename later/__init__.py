@@ -12,6 +12,8 @@
 # License for the specific language governing permissions and limitations
 # under the License.
 
+# pyre-strict
+
 """A toolbox for asyncio services"""
 
 from async_timeout import timeout

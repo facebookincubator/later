@@ -11,6 +11,8 @@
 # WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
 # License for the specific language governing permissions and limitations
 # under the License.
+
+# pyre-strict
 """
 This TestCase attempts to track all tasks so that they are ensured to have
 been awaited. Any time asyncio calls logger.error() it is considered a
