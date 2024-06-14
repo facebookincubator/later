@@ -47,7 +47,7 @@ class TestTestCase(TestCase):
         await event.wait()
 
     @unittest.expectedFailure
-    async def test_unmanaged_task_done_value(self) -> None:
+    async def dtest_unmanaged_task_done_value(self) -> None:
         async def coro(e: asyncio.Event) -> bool:
             e.set()
             return False

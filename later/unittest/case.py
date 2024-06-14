@@ -200,7 +200,7 @@ class TestCase(AsyncioTestCase):
         )
         if sys.version_info >= (3, 11):  # pragma: nocover
             loop = self._asyncioRunner.get_loop()
-        else:
+        else:  # pragma: nocover
             # pyre-fixme[16]: `TestCase` has no attribute `_asyncioTestLoop`.
             loop = self._asyncioTestLoop
         if not ignore_tasks:
@@ -217,7 +217,7 @@ class TestCase(AsyncioTestCase):
             # pyre-fixme[16]: `AsyncioTestCase` has no attribute `_callTestMethod`.
             super()._callTestMethod(testMethod)
 
-        if sys.version_info < (3, 11):
+        if sys.version_info < (3, 11):  # pragma: nocover
             # Lets join the queue to insure all the tasks created by this case
             # are cleaned up
             # pyre-fixme[16]: `TestCase` has no attribute `_asyncioCallsQueue`.
