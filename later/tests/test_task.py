@@ -286,6 +286,7 @@ class WatcherTests(TestCase):
     async def test_watcher_canceled_parent_aexit(self) -> None:
         loop = asyncio.get_running_loop()
         task: asyncio.Task = loop.create_task(asyncio.sleep(500))
+        # pyre-fixme[16]: Module `builtins` has no attribute `TimeoutError`.
         with self.assertRaises(asyncio.TimeoutError):
             async with later.timeout(0.2):
                 async with later.Watcher() as watcher:
