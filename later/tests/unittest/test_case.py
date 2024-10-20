@@ -23,7 +23,7 @@ from later.unittest import ignoreAsyncioErrors, ignoreTaskLeaks, TestCase
 
 
 # This is a place to purposefully produce leaked tasks
-saved_tasks: List[asyncio.Task] = []
+saved_tasks: list[asyncio.Task] = []
 
 
 class TestTestCase(TestCase):

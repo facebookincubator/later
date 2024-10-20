@@ -30,17 +30,10 @@ import reprlib
 import sys
 import unittest.mock as mock
 import weakref
+from collections.abc import Callable, Coroutine, Generator
 from contextvars import Context
 from functools import wraps
-from typing import (
-    AbstractSet,
-    Callable,
-    Coroutine,
-    Generator,
-    Generic,
-    TYPE_CHECKING,
-    TypeVar,
-)
+from typing import AbstractSet, Generic, TYPE_CHECKING, TypeVar
 from unittest import IsolatedAsyncioTestCase as AsyncioTestCase
 
 
