@@ -24,7 +24,7 @@ classifiers = [
     "Topic :: Software Development :: Testing",
 ]
 
-requires-python = ">=3.8"
+requires-python = ">=3.10"
 dependencies = [
     "async-timeout >= 2.0.0, < 5.0.0",
 ]
