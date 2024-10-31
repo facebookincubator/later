@@ -66,7 +66,9 @@ class TaskSentinel(asyncio.Task):
 
     def __init__(self) -> None:
         fake = Mock()
+        # pyre-fixme[6]: For 1st argument expected `Future[_T]` but got `TaskSentinel`.
         asyncio.Future.__init__(self, loop=fake)  # typing: ignore, don't create a loop
+        # pyre-fixme[6]: For 1st argument expected `Future[_T]` but got `TaskSentinel`.
         asyncio.Future.set_result(self, None)
 
 
@@ -201,6 +203,8 @@ class Watcher:
                 task = await task
 
             if isinstance(task, asyncio.Task):
+                # pyre-fixme[6]: For 1st argument expected `Future[Any]` but got
+                #  `Task[Any]`.
                 self._tasks[task] = fixer
             else:
                 raise TypeError(f"{fixer}(START_TASK) failed to return a task.")
@@ -245,6 +249,8 @@ class Watcher:
                     return True
         elif task is not START_TASK:
             if task in self._tasks:
+                # pyre-fixme[6]: For 1st argument expected `Future[Any]` but got
+                #  `Task[Any]`.
                 del self._tasks[task]
                 await tasks_changed()
                 return True
@@ -288,6 +294,8 @@ class Watcher:
             self._shielded_tasks[task] = asyncio.shield(task)
             self._tasks[self._shielded_tasks[task]] = None
         else:
+            # pyre-fixme[6]: For 1st argument expected `Future[Any]` but got
+            #  `Task[Any]`.
             self._tasks[task] = fixer
         self._tasks_changed.set_nowait()
 
@@ -353,6 +361,7 @@ class Watcher:
                 if cancel_task in done:
                     break  # Don't bother doing fixes just break out
                 for task in done:
+                    # pyre-fixme[22]: The cast is redundant.
                     task = cast(asyncio.Task, task)
                     if task is changed_task:
                         continue
@@ -370,6 +379,8 @@ class Watcher:
     async def _event_task_cleanup(self, *tasks: asyncio.Task) -> None:
         for task in tasks:
             if task is not START_TASK:
+                # pyre-fixme[6]: For 1st argument expected `Future[Any]` but got
+                #  `Task[Any]`.
                 await cancel(task)
 
     async def _fix_task(self, task: asyncio.Task) -> None:
@@ -379,8 +390,11 @@ class Watcher:
             task.result()
             if self.done_ok:
                 # clean up the task is done. And thats okay.
+                # pyre-fixme[6]: For 1st argument expected `Future[Any]` but got
+                #  `Task[Any]`.
                 del self._tasks[task]
                 return
+        # pyre-fixme[6]: For 1st argument expected `Future[Any]` but got `Task[Any]`.
         fixer = self._tasks[task]
         if fixer is None:
             raise RuntimeError(f"{task} finished and there is no fixer!") from exc
@@ -389,7 +403,11 @@ class Watcher:
             new_task = await new_task
 
         if isinstance(new_task, asyncio.Task):
+            # pyre-fixme[6]: For 1st argument expected `Future[Any]` but got
+            #  `Task[Any]`.
             del self._tasks[task]
+            # pyre-fixme[6]: For 1st argument expected `Future[Any]` but got
+            #  `Task[Any]`.
             self._tasks[new_task] = fixer
         else:
             raise TypeError(
@@ -534,6 +552,8 @@ def herd(
                 return await asyncio.shield(task)
             except asyncio.CancelledError:
                 if count_task.count == 1:
+                    # pyre-fixme[6]: For 1st argument expected `Future[Any]` but got
+                    #  `Task[Any]`.
                     await cancel(task)
                 raise  # always re-raise CancelledError
             finally:
