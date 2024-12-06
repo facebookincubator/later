@@ -18,6 +18,7 @@ This TestCase attempts to track all tasks so that they are ensured to have
 been awaited. Any time asyncio calls logger.error() it is considered a
 test failure.
 """
+
 from __future__ import annotations
 
 import asyncio

@@ -21,7 +21,6 @@ from later.unittest.mock import AsyncContextManager
 
 class TestAsyncContextManagerMock(TestCase):
     async def test_return_value(self) -> None:
-
         mock = AsyncContextManager(return_value=10)
 
         async with mock() as val:
@@ -45,7 +44,6 @@ class TestAsyncContextManagerMock(TestCase):
             self.assertEqual(val, 10)
 
     async def test_created_but_not_aentered(self) -> None:
-
         mock = AsyncContextManager()
 
         m = mock()

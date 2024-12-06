@@ -124,7 +124,7 @@ async def cancel(fut: asyncio.Future) -> None:
 
 
 def as_task(
-    func: Callable[TParams, Coroutine[object, object, T]]
+    func: Callable[TParams, Coroutine[object, object, T]],
 ) -> Callable[TParams, asyncio.Task[T]]:
     """
     Decorate a function, So that when called it is wrapped in a task
@@ -535,7 +535,7 @@ def herd(
     """
 
     def decorator(
-        fn: Callable[TParams, Coroutine[object, object, T]]
+        fn: Callable[TParams, Coroutine[object, object, T]],
     ) -> Callable[TParams, Coroutine[object, object, T]]:
         local: threading.local = threading.local()
 
