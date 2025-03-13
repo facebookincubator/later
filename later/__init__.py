@@ -18,11 +18,13 @@
 
 from async_timeout import timeout
 
+from .coroutine import coroutine_timer
+
 from .event import BiDirectionalEvent
 from .task import as_task, cancel, herd, START_TASK, Watcher, WatcherError
 
 
-__version__ = "23.11.30"
+__version__ = "25.03.01"
 __all__ = [
     "BiDirectionalEvent",
     "START_TASK",
@@ -32,4 +34,5 @@ __all__ = [
     "timeout",
     "as_task",
     "herd",
+    "coroutine_timer",
 ]
