@@ -6,7 +6,8 @@ import functools
 import logging
 import time
 
-from typing import Awaitable, Callable, ParamSpec, TypeVar
+from typing import Callable, Coroutine, ParamSpec, TypeVar
+
 
 T = TypeVar("T")
 P = ParamSpec("P")
@@ -15,8 +16,8 @@ logger: logging.Logger = logging.getLogger(__name__)
 
 
 def coroutine_timer(
-    func: Callable[P, Awaitable[T]],
-) -> Callable[P, Awaitable[T]]:
+    func: Callable[P, Coroutine[object, object, T]],
+) -> Callable[P, Coroutine[object, object, T]]:
     """
     A decorator that logs the execution time of an async function.
     """
