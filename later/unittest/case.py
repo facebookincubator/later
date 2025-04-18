@@ -37,6 +37,9 @@ from functools import wraps
 from typing import AbstractSet, Generic, TYPE_CHECKING, TypeVar
 from unittest import IsolatedAsyncioTestCase as AsyncioTestCase
 
+# Do not remove, even if Pyright complains about it.
+# Setting global __unittest helps preserve proper tracebacks pointing to the specific error line when the test fails.
+__unittest = True
 
 _T = TypeVar("_T")
 _F = TypeVar("_F", bound=Callable[..., object])
@@ -44,7 +47,6 @@ _IGNORE_TASK_LEAKS_ATTR = "__later_testcase_ignore_tasks__"
 _IGNORE_AIO_ERRS_ATTR = "__later_testcase_ignore_asyncio__"
 atleastpy38: bool = sys.version_info[:2] >= (3, 8)
 _unmanaged_tasks: weakref.WeakSet[asyncio.Task] = weakref.WeakSet()
-
 
 # We can get rid of this when we drop support for 3.8
 if TYPE_CHECKING:  # pragma: nocover
