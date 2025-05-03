@@ -27,119 +27,24 @@ import asyncio.coroutines
 import asyncio.futures
 import asyncio.log
 import asyncio.tasks
-import reprlib
 import sys
 import unittest.mock as mock
 import weakref
-from collections.abc import Callable, Coroutine, Generator
-from contextvars import Context
-from functools import wraps
-from typing import AbstractSet, Generic, TYPE_CHECKING, TypeVar
+from collections.abc import Callable, Coroutine
+from typing import AbstractSet, TypeVar
 from unittest import IsolatedAsyncioTestCase as AsyncioTestCase
+
+from .test_task import TestTask
 
 # Do not remove, even if Pyright complains about it.
 # Setting global __unittest helps preserve proper tracebacks pointing to the specific error line when the test fails.
 __unittest = True
 
-_T = TypeVar("_T")
 _F = TypeVar("_F", bound=Callable[..., object])
 _IGNORE_TASK_LEAKS_ATTR = "__later_testcase_ignore_tasks__"
 _IGNORE_AIO_ERRS_ATTR = "__later_testcase_ignore_asyncio__"
 atleastpy38: bool = sys.version_info[:2] >= (3, 8)
 _unmanaged_tasks: weakref.WeakSet[asyncio.Task] = weakref.WeakSet()
-
-# We can get rid of this when we drop support for 3.8
-if TYPE_CHECKING:  # pragma: nocover
-
-    class _BaseTask(asyncio.Task[_T]):
-        pass
-
-else:
-
-    class _BaseTask(Generic[_T], asyncio.Task):
-        pass
-
-
-class TestTask(_BaseTask[_T]):
-    _managed: bool = False
-    _coro_repr: str
-
-    # pyre-ignore[2]: We don't case *args and **kws has no type they are passed through
-    def __init__(self, coro: Coroutine[object, object, _T], *args, **kws) -> None:
-        # pyre-fixme[16]: Module `coroutines` has no attribute `_format_coroutine`.
-        self._coro_repr = asyncio.coroutines._format_coroutine(coro)
-        _unmanaged_tasks.add(self)
-        super().__init__(coro, *args, **kws)
-
-    @reprlib.recursive_repr()
-    def __repr__(self) -> str:
-        repr_info = asyncio.base_tasks._task_repr_info(self)
-        coro = f"coro={self._coro_repr}"
-        if atleastpy38:  # py3.8 added name=
-            repr_info[2] = coro  # pragma: nocover
-        else:
-            repr_info[1] = coro  # pragma: nocover
-        return f"<{self.__class__.__name__} {' '.join(repr_info)}>"
-
-    def _mark_managed(self) -> None:
-        self._managed = True
-
-    def __await__(self) -> Generator[object, None, _T]:
-        self._mark_managed()
-        return super().__await__()
-
-    def result(self) -> _T:
-        if self.done():
-            self._mark_managed()
-        return super().result()
-
-    def exception(self) -> BaseException | None:
-        if self.done():
-            self._mark_managed()
-        return super().exception()
-
-    # pyre-fixme[14]: `add_done_callback` overrides method defined in `Future`
-    #  inconsistently.
-    def add_done_callback(
-        self, fn: Callable[[asyncio.Task], None], *, context: Context | None = None
-    ) -> None:
-        @wraps(fn)
-        def mark_managed(fut: asyncio.Task) -> None:
-            self._mark_managed()
-            return fn(fut)
-
-        super().add_done_callback(mark_managed, context=context)
-
-    def was_managed(self) -> bool:
-        if self._managed:
-            return True
-        # If the task is done() and the result is None, let it pass as managed
-        # We use super here so we don't manage ourselves.
-        return (
-            self.done()
-            and not self.cancelled()
-            and not super().exception()
-            and super().result() is None
-        )
-
-    def __del__(self) -> None:
-        # So a pattern is to create_task, and not save the results.
-        # we accept that as long as there was no result other than None
-        # thrift-py3 uses this pattern to call rpc methods in ServiceInterfaces
-        # where any result/execption is returned to the remote client.
-        if not self.was_managed():
-            context = {
-                "task": self,
-                "message": (
-                    "Task was destroyed but never awaited!, "
-                    f"WrappedCoro: {self._coro_repr}"
-                ),
-            }
-            # pyre-fixme[16]: `TestTask` has no attribute `_source_traceback`.
-            if self._source_traceback:
-                context["source_traceback"] = self._source_traceback
-            self._loop.call_exception_handler(context)
-        super().__del__()
 
 
 def task_factory(
@@ -148,6 +53,7 @@ def task_factory(
     **kws: object,
 ) -> TestTask[object]:
     task = TestTask(coro, loop=loop, **kws)
+    _unmanaged_tasks.add(task)
     return task
 
 
