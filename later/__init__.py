@@ -16,7 +16,12 @@
 
 """A toolbox for asyncio services"""
 
-from async_timeout import timeout
+import sys
+
+if sys.version_info >= (3, 11):
+    from asyncio import timeout
+else:
+    from async_timeout import timeout
 
 from .coroutine import coroutine_timer
 
