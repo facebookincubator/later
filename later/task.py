@@ -275,6 +275,8 @@ class Watcher:
         elif shield:
             if fixer:
                 raise ValueError("`fixer` can not be used with shield=True")
+            # pyre-fixme[1001]: Awaitable assigned to `self._shielded_tasks` is
+            #  never awaited.
             self._shielded_tasks[task] = asyncio.shield(task)
             self._tasks[self._shielded_tasks[task]] = None
         else:
@@ -391,6 +393,7 @@ class Watcher:
         if not tasks:
             return
 
+        # pyre-fixme[1001]: Awaitable assigned to `task` is never awaited.
         for task in tasks:
             task.cancel()
 
