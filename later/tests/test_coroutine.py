@@ -17,10 +17,11 @@ from __future__ import annotations
 
 import asyncio
 import unittest
+from unittest import mock
 
+import later
 from later import coroutine_timer
-
-from later.unittest import mock, TestCase
+from later.unittest import TestCase
 
 
 class TestCoroutineTimer(TestCase):
@@ -35,6 +36,39 @@ class TestCoroutineTimer(TestCase):
             debug_fn_name = mock_debug.call_args[0][1]
             assert debug_format_str == "CoroutineTimer: '%s' took %.2f ms to execute."
             assert debug_fn_name == "coro"
+
+
+class TestGather(unittest.TestCase):
+    def test_gather_simple(self) -> None:
+        coro = later.gather(
+            asyncio.sleep(0, result=1),
+            asyncio.sleep(0, result=True),
+            asyncio.sleep(0, result="foo"),
+        )
+        self.assertEqual(asyncio.run(coro), [1, True, "foo"])
+
+    def test_gather_return_exceptions(self) -> None:
+        async def inner() -> None:
+            raise RuntimeError
+
+        coro = later.gather(inner(), return_exceptions=True)
+        self.assertIsInstance(asyncio.run(coro)[0], RuntimeError)
+
+    def test_gather_exception(self) -> None:
+        async def inner() -> None:
+            raise RuntimeError
+
+        coro = later.gather(inner())
+        with self.assertRaises(RuntimeError):
+            asyncio.run(coro)
+
+    def test_timeout(self) -> None:
+        async def inner() -> None:
+            await asyncio.sleep(9999)
+
+        coro = later.gather(inner(), timeout=0.01)
+        with self.assertRaises(asyncio.TimeoutError):
+            asyncio.run(coro)
 
 
 if __name__ == "__main__":

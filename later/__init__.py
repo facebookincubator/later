@@ -16,20 +16,11 @@
 
 """A toolbox for asyncio services"""
 
-import sys
-
-if sys.version_info >= (3, 11):  # pragma: no cover
-    from asyncio import timeout
-else:  # pragma: no cover
-    from async_timeout import timeout
-
-from .coroutine import coroutine_timer
-
+from .coroutine import coroutine_timer, gather, timeout_context as timeout
 from .event import BiDirectionalEvent
 from .task import as_task, cancel, herd, START_TASK, Watcher, WatcherError
 
-
-__version__ = "25.03.01"
+__version__ = "25.07.01"
 __all__ = [
     "BiDirectionalEvent",
     "START_TASK",
@@ -40,4 +31,5 @@ __all__ = [
     "as_task",
     "herd",
     "coroutine_timer",
+    "gather",
 ]

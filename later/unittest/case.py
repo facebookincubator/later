@@ -103,6 +103,7 @@ class TestCase(AsyncioTestCase):
             getattr(testMethod, _IGNORE_TASK_LEAKS_ATTR, False),
         )
         if sys.version_info >= (3, 11):  # pragma: nocover
+            # pyre-fixme[16]: `TestCase` has no attribute `_asyncioRunner`.
             loop = self._asyncioRunner.get_loop()
         else:  # pragma: nocover
             # pyre-fixme[16]: `TestCase` has no attribute `_asyncioTestLoop`.
