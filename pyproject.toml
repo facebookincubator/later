@@ -32,7 +32,7 @@ dependencies = [
 [project.optional-dependencies]
 dev = [
     "async-timeout==4.0.3",
-    "coverage==7.10.3",
+    "coverage==7.10.4",
     "flit==3.12.0",
 ]
 
