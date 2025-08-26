@@ -26,12 +26,12 @@ classifiers = [
 
 requires-python = ">=3.10"
 dependencies = [
-    "async-timeout >= 2.0.0, < 5.0.0",
+    "async-timeout >= 2.0.0, <= 5.0.1",
 ]
 
 [project.optional-dependencies]
 dev = [
-    "async-timeout==4.0.3",
+    "async-timeout==5.0.1",
     "coverage==7.10.5",
     "flit==3.12.0",
 ]
