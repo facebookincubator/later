@@ -27,9 +27,11 @@ import asyncio.coroutines
 import asyncio.futures
 import asyncio.log
 import asyncio.tasks
+import os.path
 import reprlib
 import sys
-from collections.abc import Callable, Coroutine, Generator
+import traceback
+from collections.abc import Callable, Coroutine, Generator, Iterator
 from contextvars import Context
 from functools import wraps
 from typing import Generic, TYPE_CHECKING, TypeVar
@@ -52,12 +54,32 @@ else:
 class TestTask(_BaseTask[_T]):
     _managed: bool = False
     _coro_repr: str
+    _creation_stack: list[traceback.FrameSummary]
 
     # pyre-ignore[2]: We don't case *args and **kws has no type they are passed through
     def __init__(self, coro: Coroutine[object, object, _T], *args, **kws) -> None:
         # pyre-fixme[16]: Module `coroutines` has no attribute `_format_coroutine`.
         self._coro_repr = asyncio.coroutines._format_coroutine(coro)
         super().__init__(coro, *args, **kws)
+        self._creation_stack = list(TestTask._filter_creation_stack())
+        self._creation_stack.reverse()
+
+    @staticmethod
+    def _filter_creation_stack() -> Iterator[traceback.FrameSummary]:
+        """
+        This removes all the asyncio internal frames since they are not helpful
+        """
+        asyncio_package = os.path.dirname(asyncio.__file__)
+        # Remove all the frames from later
+        summary = traceback.extract_stack()[:-3]
+        # Filter all frames until we hit a frame not in asyncio, then yield them all.
+        filter = True
+        for frame in reversed(summary):
+            if filter and not frame.filename.startswith(asyncio_package):
+                filter = False
+            if filter:
+                continue
+            yield frame
 
     @reprlib.recursive_repr()
     def __repr__(self) -> str:
@@ -67,6 +89,11 @@ class TestTask(_BaseTask[_T]):
             repr_info[2] = coro  # pragma: nocover
         else:
             repr_info[1] = coro  # pragma: nocover
+
+        if self._creation_stack:
+            frame = self._creation_stack[-1]
+            repr_info.append(f"Task Created at: {frame.filename}:{frame.lineno}")
+
         return f"<{self.__class__.__name__} {' '.join(repr_info)}>"
 
     def _mark_managed(self) -> None:
@@ -87,8 +114,6 @@ class TestTask(_BaseTask[_T]):
             self._mark_managed()
         return super().exception()
 
-    # pyre-fixme[14]: `add_done_callback` overrides method defined in `Future`
-    #  inconsistently.
     def add_done_callback(
         self, fn: Callable[[asyncio.Task], None], *, context: Context | None = None
     ) -> None:

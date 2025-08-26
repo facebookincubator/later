@@ -28,6 +28,7 @@ import asyncio.futures
 import asyncio.log
 import asyncio.tasks
 import sys
+import traceback
 import unittest.mock as mock
 import weakref
 from collections.abc import Callable, Coroutine
@@ -106,7 +107,6 @@ class TestCase(AsyncioTestCase):
             # pyre-fixme[16]: `TestCase` has no attribute `_asyncioRunner`.
             loop = self._asyncioRunner.get_loop()
         else:  # pragma: nocover
-            # pyre-fixme[16]: `TestCase` has no attribute `_asyncioTestLoop`.
             loop = self._asyncioTestLoop
         if not ignore_tasks:
             # install our own task factory for monitoring usage
@@ -125,14 +125,23 @@ class TestCase(AsyncioTestCase):
         if sys.version_info < (3, 11):  # pragma: nocover
             # Lets join the queue to insure all the tasks created by this case
             # are cleaned up
-            # pyre-fixme[16]: `TestCase` has no attribute `_asyncioCallsQueue`.
             loop.run_until_complete(self._asyncioCallsQueue.join())
         left_over_tasks = set(all_tasks(loop)) - set(start_tasks)
         for task in list(left_over_tasks):
             if isinstance(task, TestTask) and task.was_managed():
                 left_over_tasks.remove(task)
         if left_over_tasks and not ignore_tasks:
-            self.assertEqual(set(), left_over_tasks, "left over un-awaited tasks!")
+            errors = "\n".join(
+                [
+                    f"{task!r}\nTraceback (most recent call last):\n{''.join(traceback.format_list(task._creation_stack))}\n"
+                    for task in left_over_tasks
+                    if isinstance(task, TestTask)
+                ]
+            )
+            self.fail(
+                f"left over un-awaited tasks:\n{errors if errors else left_over_tasks}"
+            )
+
         if error.called and not ignore_error:
             errors = "\n\n".join(c[0][0] for c in error.call_args_list)
             self.fail(f"asyncio logger.error() was called!\n{errors}")
