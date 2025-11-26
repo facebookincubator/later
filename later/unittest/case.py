@@ -92,6 +92,29 @@ def ignoreTaskLeaks(test_item: _F) -> _F:
 
 
 class TestCase(AsyncioTestCase):
+    """
+    Enhanced async test case that automatically tracks asyncio tasks and monitors errors.
+
+    This test case extends unittest.IsolatedAsyncioTestCase to provide:
+    - Automatic detection of un-awaited asyncio tasks, failing tests that leak tasks
+    - Monitoring of asyncio logger errors, treating them as test failures
+    - Custom task factory for tracking task lifecycle and management
+    - Isolated event loop per test method for reproducible async testing
+
+    Use @ignoreTaskLeaks decorator on test methods that intentionally create
+    background tasks, or @ignoreAsyncioErrors for tests expecting asyncio warnings.
+
+    Example:
+        class MyAsyncTest(TestCase):
+            async def test_async_operation(self) -> None:
+                result = await some_async_function()
+                self.assertEqual(result, expected_value)
+
+            @ignoreTaskLeaks
+            async def test_background_task(self) -> None:
+                asyncio.create_task(background_operation())
+    """
+
     def _callTestMethod(self, testMethod: Callable[..., None]) -> None:
         ignore_error = getattr(
             self,
