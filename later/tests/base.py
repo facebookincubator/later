@@ -18,7 +18,6 @@ import unittest
 from later.tests.test_event import Test_BiDirectionalEvent  # noqa: F401
 from later.tests.test_task import TaskTests, WatcherTests  # noqa: F401
 from later.tests.test_version import VersionTests  # noqa: F401
-
 from later.tests.unittest.test_case import (  # noqa: F401
     IgnoreAsyncioErrorsTestCase,
     IgnoreTaskLeaksTestCase,

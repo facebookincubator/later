@@ -21,7 +21,6 @@ import functools
 import logging
 import threading
 from collections.abc import Awaitable, Callable, Coroutine, Hashable, Mapping, Sequence
-
 from functools import partial, wraps
 from inspect import isawaitable
 from types import TracebackType
@@ -385,7 +384,7 @@ class Watcher:
             self._tasks[new_task] = fixer
         else:
             raise TypeError(
-                f"{fixer}(task) failed to return a task, returned:" f"{new_task}!"
+                f"{fixer}(task) failed to return a task, returned:{new_task}!"
             ) from exc
 
     async def _handle_cancel(self) -> None:
