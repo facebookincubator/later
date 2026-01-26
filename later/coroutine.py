@@ -14,6 +14,18 @@
 
 # pyre-strict
 
+"""
+Coroutine utilities for asyncio services.
+
+This module provides helper functions for working with asyncio coroutines:
+
+- :func:`coroutine_timer`: A decorator that logs execution time of async functions.
+- :func:`gather`: A wrapper around ``asyncio.gather`` that can be called outside
+  a running event loop and supports an optional timeout parameter.
+- :func:`timeout_context`: Re-exported from ``asyncio.timeout`` (Python 3.11+)
+  or ``async_timeout.timeout`` for older versions.
+"""
+
 import asyncio
 import functools
 import logging

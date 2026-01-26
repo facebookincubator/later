@@ -15,6 +15,20 @@
 # pyre-strict
 from __future__ import annotations
 
+"""
+Task management utilities for asyncio services.
+
+This module provides utilities for managing and monitoring asyncio tasks:
+
+- :class:`Watcher`: An async context manager for supervising a group of tasks,
+  with automatic restart via "fixer" functions when tasks fail.
+- :class:`TaskSentinel`: A sentinel task instance used as a placeholder.
+- :func:`cancel`: Safely cancel a future/task and await its cancellation.
+- :func:`as_task`: Decorator to wrap coroutine functions as tasks.
+- :func:`herd`: Decorator providing thundering herd protection for async functions.
+- :class:`WatcherError`: Exception raised when tasks don't cancel cleanly.
+"""
+
 import asyncio
 import contextvars
 import functools
@@ -56,7 +70,15 @@ __all__: Sequence[str] = [
 
 
 class TaskSentinel(asyncio.Task):
-    """When you need a done task for typing"""
+    """
+    A sentinel task used as a placeholder for type safety.
+
+    This is used as a default value when a task parameter is optional,
+    allowing type checkers to distinguish between "no task provided"
+    and an actual task. The sentinel is a done task that returns None.
+
+    The global :data:`START_TASK` is the canonical instance of this class.
+    """
 
     def __init__(self) -> None:
         fake = Mock()
@@ -137,10 +159,53 @@ WATCHER_CONTEXT: contextvars.ContextVar[Watcher] = contextvars.ContextVar(
 
 
 class WatcherError(RuntimeError):
-    pass
+    """
+    Exception raised when watched tasks don't cancel cleanly.
+
+    This exception is raised by :class:`Watcher` when one or more tasks
+    either don't respond to cancellation within the timeout period,
+    or raise exceptions during cancellation.
+
+    The exception contains a list of the problematic tasks as the second
+    argument.
+    """
 
 
 class Watcher:
+    """
+    An async context manager for supervising and managing a group of asyncio tasks.
+
+    The Watcher monitors tasks and can automatically restart them using "fixer"
+    functions when they fail. It provides a structured way to manage long-running
+    background tasks in asyncio services.
+
+    Example::
+
+        async def my_worker():
+            while True:
+                await do_work()
+
+        def create_worker(failed_task: asyncio.Task) -> asyncio.Task:
+            # Log the failure if this is a restart
+            if failed_task is not START_TASK:
+                logger.error(f"Worker failed: {failed_task.exception()}")
+            return asyncio.create_task(my_worker())
+
+        async with Watcher() as watcher:
+            watcher.watch(fixer=create_worker)  # Starts and monitors the worker
+            # Watcher blocks here until cancelled or all tasks complete
+
+    The Watcher can be accessed from within watched tasks via context variables::
+
+        watcher = Watcher.get()  # Get the current watcher from context
+
+    Attributes:
+        loop: The event loop this watcher is running on.
+        running: True if the watcher is currently in its main loop.
+        done_ok: If True, tasks completing normally are removed silently.
+            If False, completed tasks without a fixer will raise an error.
+    """
+
     _tasks: dict[asyncio.Future, FixerType | None]
     _scheduled: list[FixerType]
     _tasks_changed: BiDirectionalEvent
@@ -155,6 +220,15 @@ class Watcher:
 
     @staticmethod
     def get() -> Watcher:
+        """
+        Get the current Watcher from context variables.
+
+        Returns:
+            The Watcher instance from the current context.
+
+        Raises:
+            LookupError: If no Watcher is set in the current context.
+        """
         return WATCHER_CONTEXT.get()
 
     def __init__(
@@ -165,10 +239,18 @@ class Watcher:
         done_ok: bool = True,
     ) -> None:
         """
-        cancel_timeout is the time in seconds we will wait after cancelling all
-        the tasks watched by this watcher.
+        Initialize a new Watcher.
 
-        context is wether to expose this Watcher via contextvars now or at __aenter__
+        Args:
+            cancel_timeout: Time in seconds to wait for tasks to cancel during
+                shutdown. If tasks don't cancel within this time, a WatcherError
+                is raised. Defaults to 300 seconds (5 minutes).
+            context: If True, expose this Watcher via contextvars immediately.
+                If False (default), the Watcher is only exposed when entering
+                the async context (``async with``).
+            done_ok: If True (default), tasks that complete successfully are
+                silently removed from the watch list. If False, tasks without
+                a fixer that complete will raise a RuntimeError.
         """
         if context:
             WATCHER_CONTEXT.set(self)
@@ -274,8 +356,9 @@ class Watcher:
         elif shield:
             if fixer:
                 raise ValueError("`fixer` can not be used with shield=True")
-            # pyre-fixme[1001]: Awaitable assigned to `self._shielded_tasks` is
-            #  never awaited.
+            # The shield Future is stored here and awaited later via asyncio.wait()
+            # in __aexit__. Pyre incorrectly flags this as an unawaited awaitable.
+            # pyre-fixme[1001]: False positive - shield is awaited via asyncio.wait().
             self._shielded_tasks[task] = asyncio.shield(task)
             self._tasks[self._shielded_tasks[task]] = None
         else:
@@ -287,6 +370,20 @@ class Watcher:
         coro: Coroutine[object, object, T],
         **kws: Any,
     ) -> asyncio.Task[T]:
+        """
+        Create a task and immediately add it to the watch list.
+
+        This is a convenience method combining ``asyncio.create_task()`` and
+        :meth:`watch`. The task is watched without a fixer, so if it fails,
+        behavior depends on the ``done_ok`` setting.
+
+        Args:
+            coro: The coroutine to wrap in a task.
+            **kws: Additional keyword arguments passed to ``asyncio.create_task()``.
+
+        Returns:
+            The newly created and watched task.
+        """
         t = asyncio.create_task(coro, **kws)
         self.watch(t)
         return t
@@ -300,6 +397,20 @@ class Watcher:
     def add_preexit_callback(
         self, callback: Callable[..., None], *args: Any, **kws: Any
     ) -> None:
+        """
+        Register a callback to run before the watcher exits.
+
+        Pre-exit callbacks are invoked synchronously (not awaited) before
+        tasks are cancelled during watcher shutdown. They are useful for
+        cleanup operations that need to happen before task cancellation.
+
+        Exceptions raised by callbacks are logged and ignored.
+
+        Args:
+            callback: A callable to invoke.
+            *args: Positional arguments to pass to the callback.
+            **kws: Keyword arguments to pass to the callback.
+        """
         self._preexit_callbacks.append(partial(callback, *args, **kws))
 
     def _run_preexit_callbacks(self) -> None:
@@ -392,7 +503,8 @@ class Watcher:
         if not tasks:
             return
 
-        # pyre-fixme[1001]: Awaitable assigned to `task` is never awaited.
+        # Task.cancel() returns bool, not an awaitable. Pyre incorrectly flags this.
+        # pyre-fixme[1001]: False positive - Task.cancel() is synchronous.
         for task in tasks:
             task.cancel()
 
