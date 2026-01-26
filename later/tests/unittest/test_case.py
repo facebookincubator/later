@@ -17,7 +17,6 @@ from __future__ import annotations
 
 import asyncio
 import unittest
-from typing import Any, List
 
 from later.unittest import ignoreAsyncioErrors, ignoreTaskLeaks, TestCase
 
@@ -47,7 +46,7 @@ class TestTestCase(TestCase):
         await event.wait()
 
     @unittest.expectedFailure
-    async def dtest_unmanaged_task_done_value(self) -> None:
+    async def test_unmanaged_task_done_value(self) -> None:
         async def coro(e: asyncio.Event) -> bool:
             e.set()
             return False

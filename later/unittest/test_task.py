@@ -74,7 +74,7 @@ class TestTask(_BaseTask[_T]):
     _coro_repr: str
     _creation_stack: list[traceback.FrameSummary]
 
-    # pyre-ignore[2]: We don't case *args and **kws has no type they are passed through
+    # pyre-ignore[2]: We don't cast *args and **kws as they are passed through
     def __init__(self, coro: Coroutine[object, object, _T], *args, **kws) -> None:
         # pyre-fixme[16]: Module `coroutines` has no attribute `_format_coroutine`.
         self._coro_repr = asyncio.coroutines._format_coroutine(coro)

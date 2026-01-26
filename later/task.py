@@ -47,14 +47,13 @@ from typing import (
     ParamSpec,
     Protocol,
     TypeVar,
-    Union,
 )
 from unittest.mock import Mock
 
 from .event import BiDirectionalEvent
 
 
-FixerType = Callable[[asyncio.Task], Union[asyncio.Task, Awaitable[asyncio.Task]]]
+FixerType = Callable[[asyncio.Task], asyncio.Task | Awaitable[asyncio.Task]]
 logger: logging.Logger = logging.getLogger(__name__)
 T = TypeVar("T")
 TParams = ParamSpec("TParams")
@@ -571,11 +570,21 @@ class Watcher:
 
 
 CacheKey = NewType("CacheKey", tuple[Hashable, ...])
-ArgID = Union[int, str]
+ArgID = int | str
 
 
 class _CountTask:
-    """So herd can track herd size and task together for cancellation"""
+    """
+    Internal tracker for herd size and associated task.
+
+    Used by :func:`herd` to track how many callers are waiting on a shared
+    coroutine and to manage cancellation properly. The task is only cancelled
+    when all waiters have cancelled or completed.
+
+    Attributes:
+        task: The shared asyncio Task, or None if not yet created.
+        count: Number of active callers waiting on this task.
+    """
 
     task: asyncio.Task | None = None
     count: int = 0
@@ -583,7 +592,18 @@ class _CountTask:
 
 def _get_local(local: threading.local, field: str) -> dict[CacheKey, object]:
     """
-    helper for attempting to fetch a named attr from a threading.local
+    Retrieve or create a dictionary from a thread-local storage object.
+
+    This helper is used by :func:`herd` to maintain per-thread caches of
+    in-flight coroutines.
+
+    Args:
+        local: The threading.local instance to access.
+        field: The attribute name to retrieve or create.
+
+    Returns:
+        A dictionary stored in the thread-local object. If the attribute
+        doesn't exist, an empty dictionary is created and stored.
     """
     try:
         return cast(dict[CacheKey, object], getattr(local, field))

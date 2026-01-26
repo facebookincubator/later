@@ -380,9 +380,7 @@ class HerdTests(TestCase):
         original_cancelled = False
 
         @later.herd
-        # pyre-fixme[3]: Return type must be annotated.
-        # pyre-fixme[2]: Parameter must be annotated.
-        async def fun(event):
+        async def fun(event: asyncio.Event) -> None:
             nonlocal called
             nonlocal original_cancelled
             called += 1
@@ -420,9 +418,7 @@ class HerdTests(TestCase):
         waited = 0
 
         @later.herd(ignored_args={1})
-        # pyre-fixme[3]: Return type must be annotated.
-        # pyre-fixme[2]: Parameter must be annotated.
-        async def fun(event, ignored_arg):
+        async def fun(event: asyncio.Event, ignored_arg: object) -> None:
             nonlocal called
             called += 1
             await event.wait()
@@ -450,9 +446,7 @@ class HerdTests(TestCase):
         called = 0
 
         @later.herd
-        # pyre-fixme[3]: Return type must be annotated.
-        # pyre-fixme[2]: Parameter must be annotated.
-        async def fun(event):
+        async def fun(event: asyncio.Event) -> None:
             nonlocal called
             called += 1
             await event.wait()
