@@ -30,7 +30,7 @@ copyright = "2020, Facebook Inc."
 author = "Jason Fried"
 
 # The full version, including alpha/beta/rc tags
-release = "20.1.0"
+release = "26.01.01"
 
 
 # -- General configuration ---------------------------------------------------

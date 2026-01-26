@@ -20,7 +20,7 @@ from .coroutine import coroutine_timer, gather, timeout_context as timeout
 from .event import BiDirectionalEvent
 from .task import as_task, cancel, herd, START_TASK, Watcher, WatcherError
 
-__version__ = "25.08.01"
+__version__ = "26.01.01"
 __all__ = [
     "BiDirectionalEvent",
     "START_TASK",
