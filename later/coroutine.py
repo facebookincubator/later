@@ -54,7 +54,25 @@ def coroutine_timer(
     func: Callable[P, Coroutine[object, object, T]],
 ) -> Callable[P, Coroutine[object, object, T]]:
     """
-    A decorator that logs the execution time of an async function.
+    Decorator that logs the execution time of an async function.
+
+    When the decorated function completes (successfully or with an exception),
+    a debug-level log message is emitted with the function name and execution
+    time in milliseconds.
+
+    Example::
+
+        @coroutine_timer
+        async def slow_operation() -> None:
+            await asyncio.sleep(1)
+
+        # Logs: "CoroutineTimer: 'slow_operation' took 1000.00 ms to execute."
+
+    Args:
+        func: The async function to wrap.
+
+    Returns:
+        The wrapped function that logs execution time.
     """
 
     @functools.wraps(func)
@@ -249,8 +267,27 @@ async def gather(
     timeout: float | None = None,
 ):
     """
-    This is a wrapper around asyncio.gather that is safe to use outside of a running event loop.
-    Since its a coroutine, it can be awaited from any loop after its called, unlike asyncio.gather
+    A wrapper around ``asyncio.gather`` with timeout support.
+
+    Unlike ``asyncio.gather``, this function is safe to call outside of a
+    running event loop. Since it's a coroutine (not a function that returns
+    a future), it can be created and then awaited later from any loop.
+
+    Args:
+        *coros: Coroutines to run concurrently.
+        return_exceptions: If True, exceptions are returned as results instead
+            of being raised. Defaults to False.
+        timeout: Optional timeout in seconds. If specified, raises
+            ``asyncio.TimeoutError`` if the gather doesn't complete in time.
+
+    Returns:
+        A tuple or list of results from the coroutines (see overloads for
+        specific return types based on input).
+
+    Raises:
+        asyncio.TimeoutError: If timeout is specified and exceeded.
+        Exception: Any exception from the coroutines (unless return_exceptions
+            is True).
     """
     if timeout is None:
         return await asyncio.gather(*coros, return_exceptions=return_exceptions)
