@@ -14,9 +14,11 @@
 
 # pyre-strict
 """
-This TestCase attempts to track all tasks so that they are ensured to have
-been awaited. Any time asyncio calls logger.error() it is considered a
-test failure.
+Task tracking utilities for async test cases.
+
+This module provides :class:`TestTask`, an instrumented asyncio Task subclass
+that tracks whether tasks have been properly awaited or otherwise managed.
+It is used by :class:`later.unittest.TestCase` to detect task leaks in tests.
 """
 
 from __future__ import annotations
@@ -52,6 +54,29 @@ else:
 
 
 class TestTask(_BaseTask[_T]):
+    """
+    An instrumented asyncio Task that tracks whether it has been managed.
+
+    This class wraps a coroutine as an asyncio Task while tracking whether
+    the task result was properly consumed. A task is considered "managed" when:
+
+    - It is awaited (via ``await task``)
+    - Its result is retrieved (via ``task.result()``)
+    - Its exception is retrieved (via ``task.exception()``)
+    - A done callback is added (via ``task.add_done_callback()``)
+    - It completes with ``None`` result (fire-and-forget pattern)
+
+    When a TestTask is garbage collected without being managed, it logs
+    an error through the event loop's exception handler, which can be
+    used by test frameworks to fail tests that leak tasks.
+
+    Attributes:
+        _managed: Whether the task has been properly managed.
+        _coro_repr: String representation of the wrapped coroutine.
+        _creation_stack: Stack trace from where the task was created,
+            with asyncio internals filtered out for readability.
+    """
+
     _managed: bool = False
     _coro_repr: str
     _creation_stack: list[traceback.FrameSummary]

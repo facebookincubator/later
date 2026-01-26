@@ -13,6 +13,18 @@
 # limitations under the License.
 
 # pyre-strict
+"""
+Unittest utilities for asyncio-based test cases.
+
+This module provides enhanced testing infrastructure for asynchronous code:
+
+- :class:`TestCase`: An enhanced async test case that automatically tracks
+  asyncio tasks and monitors for errors.
+- :func:`ignoreTaskLeaks`: Decorator for tests that intentionally create
+  background tasks.
+- :func:`ignoreAsyncioErrors`: Decorator for tests expecting asyncio warnings.
+"""
+
 from .case import ignoreAsyncioErrors, ignoreTaskLeaks, TestCase
 
 
