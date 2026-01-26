@@ -31,26 +31,19 @@ import asyncio.log
 import asyncio.tasks
 import os.path
 import reprlib
-import sys
 import traceback
 from collections.abc import Callable, Coroutine, Generator, Iterator
 from contextvars import Context
 from functools import wraps
-from typing import Generic, TYPE_CHECKING, TypeVar
+from typing import TypeVar
 
 _T = TypeVar("_T")
-atleastpy38: bool = sys.version_info[:2] >= (3, 8)
 
-# We can get rid of this when we drop support for 3.8
-if TYPE_CHECKING:  # pragma: nocover
 
-    class _BaseTask(asyncio.Task[_T]):
-        pass
+class _BaseTask(asyncio.Task[_T]):
+    """Base class for generic Task typing. Uses subscripted Task (Python 3.9+)."""
 
-else:
-
-    class _BaseTask(Generic[_T], asyncio.Task):
-        pass
+    pass
 
 
 class TestTask(_BaseTask[_T]):
@@ -110,10 +103,8 @@ class TestTask(_BaseTask[_T]):
     def __repr__(self) -> str:
         repr_info = asyncio.base_tasks._task_repr_info(self)
         coro = f"coro={self._coro_repr}"
-        if atleastpy38:  # py3.8 added name=
-            repr_info[2] = coro  # pragma: nocover
-        else:
-            repr_info[1] = coro  # pragma: nocover
+        # Index 2 is the coro slot (after name= which was added in Python 3.8)
+        repr_info[2] = coro
 
         if self._creation_stack:
             frame = self._creation_stack[-1]
