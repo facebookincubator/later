@@ -130,7 +130,7 @@ class TaskTests(TestCase):
         ctask.cancel()
         await asyncio.sleep(0)  # Insure the cancel was raised in the ctask
         self.assertTrue(cancelled)
-        # Not done yet since the orignal task is sleeping
+        # Not done yet since the original task is sleeping
         self.assertFalse(ctask.cancelled())
         # we are not cancelled yet, there is a 0.5 sleep in the cancellation flow
         with self.assertRaises(asyncio.CancelledError):
