@@ -94,6 +94,7 @@ def coroutine_timer(
 
 # All this typing mess was stolen from TypeShed and adapted to our needs
 @overload
+# pyrefly: ignore [inconsistent-overload-default]
 async def gather(
     coro1: Coroutine[Any, Any, _T1],
     /,
