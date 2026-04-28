@@ -58,14 +58,10 @@ class BiDirectionalEvent:
         _first_wait: Event to track if wait() has been called at least once.
     """
 
-    _sevent: Event
-    _cevent: Event
-    _first_wait: Event
-
     def __init__(self) -> None:
-        self._cevent = Event()
-        self._sevent = Event()
-        self._first_wait = Event()
+        self._cevent: Event = Event()
+        self._sevent: Event = Event()
+        self._first_wait: Event = Event()
 
     async def wait(self) -> None:
         """
