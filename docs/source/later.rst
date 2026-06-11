@@ -12,6 +12,14 @@ later. module
    :undoc-members:
    :show-inheritance:
 
+later.runner module
+---------------------------------
+
+.. automodule:: later.runner
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
 later.task module
 ---------------------------------
 
