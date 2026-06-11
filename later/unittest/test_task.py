@@ -35,7 +35,7 @@ import traceback
 from collections.abc import Callable, Coroutine, Generator, Iterator
 from contextvars import Context
 from functools import wraps
-from typing import TypeVar
+from typing import Any, TypeVar
 
 _T = TypeVar("_T")
 
@@ -159,7 +159,7 @@ class TestTask(_BaseTask[_T]):
         # thrift-py3 uses this pattern to call rpc methods in ServiceInterfaces
         # where any result/execption is returned to the remote client.
         if not self.was_managed():
-            context = {
+            context: dict[str, Any] = {
                 "task": self,
                 "message": (
                     "Task was destroyed but never awaited!, "
@@ -168,7 +168,6 @@ class TestTask(_BaseTask[_T]):
             }
             # pyre-fixme[16]: `TestTask` has no attribute `_source_traceback`.
             if self._source_traceback:
-                # pyrefly: ignore [bad-typed-dict-key]
                 context["source_traceback"] = self._source_traceback
             self._loop.call_exception_handler(context)
         super().__del__()
