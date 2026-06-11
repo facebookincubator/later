@@ -405,3 +405,33 @@ class TestRunner(TestCase):
 
         with self.assertRaises(RuntimeError):
             run_nested(nested())
+
+    def test_task_factory_not_inherited_across_borrows(self) -> None:
+        """
+        A loop returned to the pool must not carry a previous borrower's task
+        factory into the next, unrelated run_nested call.
+        """
+        # Force every run to borrow from the pool.
+        self.loop.close()
+
+        # Seed the pool with loops while an eager task factory is set on the
+        # running loop, so a borrowed loop picks it up and is returned dirty.
+        async def seed() -> None:
+            asyncio.get_running_loop().set_task_factory(asyncio.eager_task_factory)
+            run_nested(asyncio.sleep(0))
+
+        run_nested(seed())
+
+        # A later run whose running loop has no factory must observe no factory,
+        # both on the loop it runs on and on any loop it borrows.
+        seen: list[object] = []
+
+        async def record_inner() -> None:
+            seen.append(asyncio.get_running_loop().get_task_factory())
+
+        async def driver() -> None:
+            self.assertIsNone(asyncio.get_running_loop().get_task_factory())
+            run_nested(record_inner())
+
+        run_nested(driver())
+        self.assertEqual(seen, [None])

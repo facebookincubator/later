@@ -35,10 +35,7 @@ from asyncio.events import (
 from collections import deque
 from contextlib import contextmanager
 from os import getpid
-from typing import Awaitable, Iterator, TYPE_CHECKING, TypeVar
-
-if TYPE_CHECKING:  # pragma: no cover
-    from asyncio.events import _TaskFactory
+from typing import Awaitable, Iterator, TypeVar
 
 __all__: list[str] = ["run_nested"]
 
@@ -245,29 +242,46 @@ def run_nested(awaitable: Awaitable[T]) -> T:
     """
     # Track what the pid was when we started
     pid: int = PID
-    borrowed: bool = False
-    task_factory: _TaskFactory | None = None
+    rloop: AbstractEventLoop | None = get_running_loop()
 
-    if (rloop := get_running_loop()) is not None:
-        task_factory = rloop.get_task_factory()
     # Check the legacy "set" event loop for a "default" loop for the thread
     if (loop := _get_event_loop()) is not None and (
         loop.is_running() or loop.is_closed()
     ):
         loop = None
 
-    if loop is None:
+    if rloop is None:
+        # Fast path: nothing is running on this thread, so there is no running
+        # loop or task to pause, and run_until_complete manages the running-loop
+        # state itself.
+        if loop is not None:
+            return loop.run_until_complete(awaitable)
         loop = _thread_local_pool.borrow_loop()
-        borrowed = True
-        # This is the old carve out for request context
-        if task_factory is not None:
-            loop.set_task_factory(task_factory)
-
-    with pause_existing_loop():
+        # Do not inherit a previous borrower's task factory.
+        loop.set_task_factory(None)
         try:
             return loop.run_until_complete(awaitable)
         finally:
             # The worst case we get a fork in the run_until_complete and try to put the parent
             # loop into the child pool. This global is updated in child after fork
+            if pid == PID:
+                _thread_local_pool.return_loop(loop)
+
+    # A loop is already running on this thread, so we must pause it (and the
+    # current task) before driving the inner loop.
+    borrowed: bool = False
+    if loop is None:
+        loop = _thread_local_pool.borrow_loop()
+        borrowed = True
+        # This is the old carve out for request context. Copy the running loop's
+        # task factory (which may be None) so we never inherit a stale one.
+        loop.set_task_factory(rloop.get_task_factory())
+
+    with pause_existing_loop():
+        try:
+            return loop.run_until_complete(awaitable)
+        finally:
+            # return_loop (and its lazy cleanup) must run while the outer loop is
+            # still paused, so any cleanup run_until_complete sees no running loop.
             if borrowed and pid == PID:
                 _thread_local_pool.return_loop(loop)
