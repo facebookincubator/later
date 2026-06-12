@@ -223,6 +223,7 @@ def pause_existing_loop() -> Iterator[None]:
     # Python 3.14+ tracks task execution state separately; we must leave the
     # current task before running a nested loop
     if current_task is not None:
+        # pyrefly: ignore [bad-argument-type]
         asyncio._leave_task(running_loop, current_task)
     # _set_running_loop() will set the current event loop
     _set_running_loop(None)
@@ -232,6 +233,7 @@ def pause_existing_loop() -> Iterator[None]:
         # Restore the previously running event loop
         _set_running_loop(running_loop)
         if current_task is not None:
+            # pyrefly: ignore [bad-argument-type]
             asyncio._enter_task(running_loop, current_task)
 
 
