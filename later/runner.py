@@ -213,12 +213,16 @@ def pause_existing_loop() -> Iterator[None]:
     # We need to clear out the running event loop so we can start a new one
     # _get_running_loop() will return the current event loop if it exists without raising an exception
     running_loop = get_running_loop()
-    if running_loop and not ALLOW_NESTED_LOOPS:
+    if not running_loop:
+        # No running loop to pause; nothing to leave or restore.
+        yield
+        return
+    if not ALLOW_NESTED_LOOPS:
         raise RuntimeError(
             "Nested event loops are not allowed by ENV variable ALLOW_NESTED_LOOPS"
         )
 
-    current_task = asyncio.current_task() if running_loop else None
+    current_task = asyncio.current_task()
 
     # Python 3.14+ tracks task execution state separately; we must leave the
     # current task before running a nested loop

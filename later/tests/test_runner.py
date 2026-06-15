@@ -19,7 +19,12 @@ import time
 from concurrent.futures import Future, ThreadPoolExecutor, wait
 from unittest import TestCase
 
-from later.runner import _get_event_loop, _thread_local_pool, run_nested
+from later.runner import (
+    _get_event_loop,
+    _thread_local_pool,
+    pause_existing_loop,
+    run_nested,
+)
 
 
 class TestRunner(TestCase):
@@ -355,6 +360,14 @@ class TestRunner(TestCase):
         self.assertFalse(tasks[3].done())
 
         self.assertEqual(len(_thread_local_pool), 2)
+
+    def test_pause_existing_loop_is_noop_without_running_loop(self) -> None:
+        # run_nested only enters pause_existing_loop when a loop is running; with
+        # nothing running the context manager must be a harmless no-op.
+        ran = False
+        with pause_existing_loop():
+            ran = True
+        self.assertTrue(ran)
 
     def test_running_loop_in_pool(self) -> None:
         async def get_loop() -> asyncio.AbstractEventLoop:
