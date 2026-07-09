@@ -17,11 +17,14 @@ import asyncio
 import os
 import time
 from concurrent.futures import Future, ThreadPoolExecutor, wait
+from typing import cast
 from unittest import TestCase
 
 from later.runner import (
+    _close_pooled_loops,
     _get_event_loop,
     _thread_local_pool,
+    _ThreadLocalPool,
     pause_existing_loop,
     run_nested,
 )
@@ -42,6 +45,55 @@ class TestRunner(TestCase):
         _thread_local_pool.dirty_loop = None
         self.loop.close()
         asyncio.set_event_loop(None)
+
+    def test_close_pooled_loops_closes_parked_loops(self) -> None:
+        # A loop parked in the pool must be closed by the drain so it is never
+        # garbage-collected while still open (which raises from
+        # BaseEventLoop.__del__ at interpreter shutdown). Use an isolated pool so
+        # the drain never touches loops other tests parked in the global pool.
+        pool = _ThreadLocalPool()
+        loop = asyncio.new_event_loop()
+        pool.return_loop(loop)
+        self.assertIn(loop, pool.stack)
+        _close_pooled_loops(pool)
+        self.assertTrue(loop.is_closed())
+        self.assertEqual(len(pool.stack), 0)
+        self.assertIsNone(pool.dirty_loop)
+
+    def test_close_pooled_loops_swallows_close_errors(self) -> None:
+        # One loop failing to close must not stop the drain from closing the rest.
+        class _RaisingLoop:
+            def is_running(self) -> bool:
+                return False
+
+            def is_closed(self) -> bool:
+                return False
+
+            def close(self) -> None:
+                raise RuntimeError("boom")
+
+        pool = _ThreadLocalPool()
+        good = asyncio.new_event_loop()
+        pool.stack.append(cast(asyncio.AbstractEventLoop, _RaisingLoop()))
+        pool.stack.append(good)
+        _close_pooled_loops(pool)
+        self.assertTrue(good.is_closed())
+        self.assertEqual(len(pool.stack), 0)
+
+    def test_close_pooled_loops_defaults_to_global_pool(self) -> None:
+        # With no argument the drain targets the process-global pool (the atexit
+        # path). Snapshot + restore it so this never disturbs loops parked by
+        # other tests running in the same process.
+        saved_stack = list(_thread_local_pool.stack)
+        saved_dirty = _thread_local_pool.dirty_loop
+        _thread_local_pool.stack.clear()
+        _thread_local_pool.dirty_loop = None
+        try:
+            _close_pooled_loops()
+            self.assertEqual(len(_thread_local_pool.stack), 0)
+        finally:
+            _thread_local_pool.stack.extend(saved_stack)
+            _thread_local_pool.dirty_loop = saved_dirty
 
     def test_simple_run_with_nesting(self) -> None:
         """

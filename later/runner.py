@@ -23,6 +23,7 @@ from __future__ import annotations
 import asyncio
 import asyncio.events
 import asyncio.events as asyncio_events
+import atexit
 import logging
 import os
 import threading
@@ -182,6 +183,48 @@ _thread_local_pool: _ThreadLocalPool = _ThreadLocalPool()
 # At fork, reinitialize the `_thread_local_pool` so it is useable in the child
 if hasattr(os, "register_at_fork"):
     os.register_at_fork(after_in_child=_thread_local_pool.atFork)
+
+
+def _close_pooled_loops(pool: _ThreadLocalPool | None = None) -> None:
+    """Close loops parked in a pool so none are garbage-collected while still open.
+
+    Pooled loops are deliberately kept open for reuse across `run_nested` calls, so
+    the only safe time to close them is when they can never be borrowed again. A
+    loop that reaches `BaseEventLoop.__del__` still open raises
+    `ValueError: Invalid file descriptor` from `_close_self_pipe` (its self-pipe
+    socket fd is already `-1`), which surfaces as noisy `Exception ignored in ...`
+    output. `cleanup_loop` cancels any lingering tasks / async generators first so a
+    parked loop with unfinished work does not emit "Task was destroyed" on close.
+
+    Registered via `atexit` for the process-global pool (`pool=None`), draining the
+    main thread's pool at interpreter shutdown; other threads' pools are freed when
+    those threads exit. `pool` is injectable so a test drains its own pool without
+    disturbing loops other tests parked in the global one.
+    """
+    if pool is None:
+        pool = _thread_local_pool
+    loops = list(pool.stack)
+    pool.stack.clear()
+    if (dirty_loop := pool.dirty_loop) is not None:
+        loops.append(dirty_loop)
+        pool.dirty_loop = None
+    for loop in loops:
+        if loop.is_running() or loop.is_closed():
+            continue
+        # Best-effort: neither cancelling tasks nor closing may raise, or one bad
+        # loop would abort the drain and become the very shutdown noise this exists
+        # to suppress. Logging is unsafe this late in teardown, so swallow.
+        try:
+            _ThreadLocalPool.cleanup_loop(loop)
+        except Exception:
+            pass
+        try:
+            loop.close()
+        except Exception:
+            pass
+
+
+atexit.register(_close_pooled_loops)
 
 
 def _get_event_loop() -> AbstractEventLoop | None:
