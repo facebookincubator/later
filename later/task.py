@@ -238,7 +238,6 @@ class Watcher:
     _cancel_timeout: float
     _preexit_callbacks: list[Callable[[], None]]
     _shielded_tasks: dict[asyncio.Task, asyncio.Future]
-    # pyre-ignore[13]: loop is initialized in __aenter__
     loop: asyncio.AbstractEventLoop
     running: bool
     done_ok: bool
@@ -403,7 +402,6 @@ class Watcher:
                 raise ValueError("`fixer` can not be used with shield=True")
             # The shield Future is stored here and awaited later via asyncio.wait()
             # in __aexit__. Pyre incorrectly flags this as an unawaited awaitable.
-            # pyre-fixme[1001]: False positive - shield is awaited via asyncio.wait().
             self._shielded_tasks[task] = asyncio.shield(task)
             self._tasks[self._shielded_tasks[task]] = None
         else:
@@ -549,7 +547,6 @@ class Watcher:
             return
 
         # Task.cancel() returns bool, not an awaitable. Pyre incorrectly flags this.
-        # pyre-fixme[1001]: False positive - Task.cancel() is synchronous.
         for task in tasks:
             task.cancel()
 

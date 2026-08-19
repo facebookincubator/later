@@ -131,7 +131,6 @@ class _ThreadLocalPool(threading.local):
             loop._asyncgens_shutdown_called = False
             cancel_all_tasks(loop)
             # Lets throw away the default executor if it exists
-            # pyrefly: ignore [missing-attribute]
             if (executor := loop._default_executor) is not None:
                 executor.shutdown(wait=False, cancel_futures=True)
                 # pyrefly: ignore [bad-assignment]
@@ -233,7 +232,6 @@ def _get_event_loop() -> AbstractEventLoop | None:
     """
     # This uses implementation details of asyncio, that could change in python 3.16
     # But it prevents the warning messages about not having a set event loop
-    # pyre-ignore[16]: Suppress error about asyncio.events._event_loop_policy
     if (policy := getattr(asyncio_events, "_event_loop_policy", False)) is not False:
         if policy is None:  # pragma: no cover
             return None
@@ -270,7 +268,6 @@ def pause_existing_loop() -> Iterator[None]:
     # Python 3.14+ tracks task execution state separately; we must leave the
     # current task before running a nested loop
     if current_task is not None:
-        # pyrefly: ignore [bad-argument-type]
         asyncio._leave_task(running_loop, current_task)
     # _set_running_loop() will set the current event loop
     _set_running_loop(None)
@@ -280,7 +277,6 @@ def pause_existing_loop() -> Iterator[None]:
         # Restore the previously running event loop
         _set_running_loop(running_loop)
         if current_task is not None:
-            # pyrefly: ignore [bad-argument-type]
             asyncio._enter_task(running_loop, current_task)
 
 
