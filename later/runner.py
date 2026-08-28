@@ -12,7 +12,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# pyre-strict
 """
 This module provides a pool of event loops like IG does so we create the least number of loops.
 And provides some primatives for supporting nested loops.
