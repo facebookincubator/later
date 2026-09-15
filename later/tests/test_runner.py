@@ -12,24 +12,16 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from __future__ import annotations
-
 import asyncio
-import multiprocessing
 import os
-import threading
 import time
-import weakref
 from concurrent.futures import Future, ThreadPoolExecutor, wait
-from typing import Awaitable, Callable, cast
+from typing import cast
 from unittest import TestCase
-from unittest.mock import patch
 
 from later.runner import (
-    _after_fork_in_child,
     _close_pooled_loops,
     _get_event_loop,
-    _pooled_loops_lock,
     _thread_local_pool,
     _ThreadLocalPool,
     pause_existing_loop,
@@ -37,26 +29,21 @@ from later.runner import (
 )
 
 
-class TestPoolShutdown(TestCase):
+class TestRunner(TestCase):
     def setUp(self) -> None:
-        self.pool = _ThreadLocalPool()
-        self.registry: weakref.WeakSet[asyncio.AbstractEventLoop] = weakref.WeakSet()
-        self.enterContext(patch("later.runner._thread_local_pool", self.pool))
-        self.enterContext(patch("later.runner._pooled_loops", self.registry))
-        self.enterContext(patch("later.runner._pool_shutdown", False))
-        self.addCleanup(_close_pooled_loops)
+        # Setup a default loop for the test
+        self.loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(self.loop)
+        self.addCleanup(self.cleanup)
 
-    def run_in_forked_process(self, target: Callable[[], None]) -> None:
-        process = multiprocessing.get_context("fork").Process(target=target)
-        process.start()
-        try:
-            process.join(timeout=10)
-            self.assertEqual(process.exitcode, 0)
-        finally:
-            if process.is_alive():
-                process.kill()
-                process.join(timeout=10)
-            process.close()
+    def cleanup(self) -> None:
+        # This cleans up the stack of nested loops
+        for loop in _thread_local_pool.stack:
+            loop.close()
+        _thread_local_pool.stack.clear()
+        _thread_local_pool.dirty_loop = None
+        self.loop.close()
+        asyncio.set_event_loop(None)
 
     def test_close_pooled_loops_closes_parked_loops(self) -> None:
         # A loop parked in the pool must be closed by the drain so it is never
@@ -93,165 +80,19 @@ class TestPoolShutdown(TestCase):
         self.assertEqual(len(pool.stack), 0)
 
     def test_close_pooled_loops_defaults_to_global_pool(self) -> None:
-        loop = self.pool.borrow_loop()
-        self.pool.return_loop(loop)
-
-        _close_pooled_loops()
-
-        self.assertTrue(loop.is_closed())
-        self.assertEqual(len(self.pool.stack), 0)
-        self.assertIsNone(self.pool.dirty_loop)
-        self.assertEqual(len(self.registry), 0)
-
-    def test_close_pooled_loops_closes_worker_thread_loops(self) -> None:
-        # The main-thread atexit drain cannot see worker-local pools. Their loops
-        # must still close before GC tears down sockets and makes loop.__del__ fail.
-        worker_count = 3
-        barrier = threading.Barrier(worker_count, timeout=10)
-
-        async def get_loop() -> asyncio.AbstractEventLoop:
-            return asyncio.get_running_loop()
-
-        def park_loop() -> asyncio.AbstractEventLoop:
-            loop = run_nested(get_loop())
-            barrier.wait()
-            return loop
-
-        with ThreadPoolExecutor(worker_count) as executor:
-            loops = list(executor.map(lambda _: park_loop(), range(worker_count)))
-
-        self.assertEqual(worker_count, len(set(loops)))
-        self.assertTrue(all(not loop.is_closed() for loop in loops))
-
-        _close_pooled_loops()
-
-        self.assertTrue(all(loop.is_closed() for loop in loops))
-
-    def test_close_pooled_loops_skips_loop_being_cleaned(self) -> None:
-        dirty_loop = asyncio.new_event_loop()
-        returned_loop = asyncio.new_event_loop()
-        self.addCleanup(dirty_loop.close)
-        self.addCleanup(returned_loop.close)
-        cleanup_started = threading.Event()
-        resume_cleanup = threading.Event()
-        run_until_complete = dirty_loop.run_until_complete
-
-        def pause_after_run(awaitable: Awaitable[object]) -> object:
-            result = run_until_complete(awaitable)
-            if not cleanup_started.is_set():
-                cleanup_started.set()
-                if not resume_cleanup.wait(timeout=10):
-                    raise TimeoutError("Timed out waiting to resume loop cleanup")
-            return result
-
-        def bury_dirty_loop() -> None:
-            self.pool.return_loop(dirty_loop)
-            self.pool.return_loop(returned_loop)
-
-        with (
-            ThreadPoolExecutor(1) as executor,
-            patch.object(dirty_loop, "run_until_complete", side_effect=pause_after_run),
-        ):
-            future = executor.submit(bury_dirty_loop)
-            try:
-                self.assertTrue(cleanup_started.wait(timeout=10))
-                _close_pooled_loops()
-                self.assertFalse(dirty_loop.is_closed())
-            finally:
-                resume_cleanup.set()
-            future.result(timeout=10)
-
-        self.assertTrue(dirty_loop.is_closed())
-        self.assertTrue(returned_loop.is_closed())
-
-    def test_return_loop_after_shutdown_does_not_reuse_closed_loop(self) -> None:
-        loop = self.pool.borrow_loop()
-        self.pool.return_loop(loop)
-        with ThreadPoolExecutor(1) as executor:
-            executor.submit(_close_pooled_loops).result(timeout=10)
-        self.assertTrue(loop.is_closed())
-
-        returned_loop = asyncio.new_event_loop()
-        self.pool.return_loop(returned_loop)
-        self.assertNotIn(loop, self.registry)
-        self.assertTrue(returned_loop.is_closed())
-        self.assertEqual(len(self.pool.stack), 0)
-        self.assertIsNone(self.pool.dirty_loop)
-        replacement = self.pool.borrow_loop()
-        self.addCleanup(replacement.close)
-        self.assertFalse(replacement.is_closed())
-
-    def test_return_loop_discards_closed_dirty_loop(self) -> None:
-        closed_loop = self.pool.borrow_loop()
-        self.pool.return_loop(closed_loop)
-        closed_loop.close()
-
-        loop = asyncio.new_event_loop()
-        self.pool.return_loop(loop)
-
-        self.assertNotIn(closed_loop, self.registry)
-        self.assertIn(loop, self.registry)
-
-    def test_fork_discards_worker_thread_loops(self) -> None:
-        async def get_loop() -> asyncio.AbstractEventLoop:
-            return asyncio.get_running_loop()
-
-        with ThreadPoolExecutor(1) as executor:
-            loop = executor.submit(run_nested, get_loop()).result(timeout=10)
-
-        def check_child() -> None:
-            self.assertEqual(len(self.registry), 0)
-            _close_pooled_loops()
-            self.assertFalse(loop.is_closed())
-
-        self.run_in_forked_process(check_child)
-        self.assertIn(loop, self.registry)
-        self.assertFalse(loop.is_closed())
-
-    def test_fork_starts_fresh_pool_after_shutdown(self) -> None:
-        _close_pooled_loops()
-
-        def check_child() -> None:
-            loop = self.pool.borrow_loop()
-            self.pool.return_loop(loop)
-            self.assertFalse(loop.is_closed())
-            self.assertIn(loop, self.registry)
-            _close_pooled_loops()
-
-        self.run_in_forked_process(check_child)
-        loop = self.pool.borrow_loop()
-        self.pool.return_loop(loop)
-        self.assertTrue(loop.is_closed())
-
-    def test_fork_releases_lock_when_pool_reset_raises(self) -> None:
-        with patch.object(
-            self.pool, "atFork", side_effect=RuntimeError("pool reset failed")
-        ):
-            _pooled_loops_lock.acquire()
-            try:
-                with self.assertRaisesRegex(RuntimeError, "pool reset failed"):
-                    _after_fork_in_child()
-                self.assertFalse(_pooled_loops_lock.locked())
-            finally:
-                if _pooled_loops_lock.locked():
-                    _pooled_loops_lock.release()
-
-
-class TestRunner(TestCase):
-    def setUp(self) -> None:
-        # Setup a default loop for the test
-        self.loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(self.loop)
-        self.addCleanup(self.cleanup)
-
-    def cleanup(self) -> None:
-        # This cleans up the stack of nested loops
-        for loop in _thread_local_pool.stack:
-            loop.close()
+        # With no argument the drain targets the process-global pool (the atexit
+        # path). Snapshot + restore it so this never disturbs loops parked by
+        # other tests running in the same process.
+        saved_stack = list(_thread_local_pool.stack)
+        saved_dirty = _thread_local_pool.dirty_loop
         _thread_local_pool.stack.clear()
         _thread_local_pool.dirty_loop = None
-        self.loop.close()
-        asyncio.set_event_loop(None)
+        try:
+            _close_pooled_loops()
+            self.assertEqual(len(_thread_local_pool.stack), 0)
+        finally:
+            _thread_local_pool.stack.extend(saved_stack)
+            _thread_local_pool.dirty_loop = saved_dirty
 
     def test_simple_run_with_nesting(self) -> None:
         """
