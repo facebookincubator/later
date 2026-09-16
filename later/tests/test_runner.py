@@ -12,38 +12,466 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from __future__ import annotations
+
 import asyncio
+import gc
+import multiprocessing
 import os
+import threading
 import time
+import weakref
 from concurrent.futures import Future, ThreadPoolExecutor, wait
-from typing import cast
+from contextlib import contextmanager
+from typing import Awaitable, Callable, cast, Iterator
 from unittest import TestCase
+from unittest.mock import DEFAULT, patch
 
 from later.runner import (
     _close_pooled_loops,
     _get_event_loop,
     _thread_local_pool,
     _ThreadLocalPool,
+    new_event_loop,
     pause_existing_loop,
     run_nested,
 )
 
 
-class TestRunner(TestCase):
+class TestPoolShutdown(TestCase):
     def setUp(self) -> None:
-        # Setup a default loop for the test
-        self.loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(self.loop)
-        self.addCleanup(self.cleanup)
+        self.pool = _ThreadLocalPool()
+        self.registry: weakref.WeakValueDictionary[int, asyncio.AbstractEventLoop] = (
+            weakref.WeakValueDictionary()
+        )
+        self.enterContext(patch("later.runner._thread_local_pool", self.pool))
+        self.enterContext(patch("later.runner._pooled_loops", self.registry))
+        self.enterContext(patch("later.runner._pool_shutdown", False))
+        self.addCleanup(_close_pooled_loops)
 
-    def cleanup(self) -> None:
-        # This cleans up the stack of nested loops
-        for loop in _thread_local_pool.stack:
-            loop.close()
-        _thread_local_pool.stack.clear()
-        _thread_local_pool.dirty_loop = None
-        self.loop.close()
+    def run_in_forked_process(
+        self, target: Callable[[], None], timeout: float = 10
+    ) -> None:
+        process = multiprocessing.get_context("fork").Process(target=target)
+        process.start()
+        try:
+            process.join(timeout=timeout)
+            self.assertEqual(process.exitcode, 0)
+        finally:
+            if process.is_alive():
+                process.kill()
+                process.join(timeout=10)
+            process.close()
+
+    @contextmanager
+    def collect_on_weakref_allocation(self) -> Iterator[None]:
+        collect_next = False
+
+        def collect_before_ref(*args: object) -> object:
+            nonlocal collect_next
+            if collect_next:
+                collect_next = False
+                gc.collect()
+            return DEFAULT
+
+        # Weak-reference allocation can start cyclic GC. Force that timing
+        # without relying on the interpreter's GC thresholds.
+        with (
+            patch("_weakrefset.ref", side_effect=collect_before_ref, wraps=weakref.ref),
+            patch(
+                "weakref.KeyedRef",
+                side_effect=collect_before_ref,
+                wraps=weakref.KeyedRef,
+            ),
+        ):
+            collect_next = True
+            yield
+
+    @contextmanager
+    def finalize_on_weakref_allocation(
+        self, callback: Callable[[], None]
+    ) -> Iterator[None]:
+        gc_enabled = gc.isenabled()
+        gc.disable()
+        errors: list[Exception] = []
+        finalized: list[bool] = []
+
+        class Finalizer:
+            def __del__(self) -> None:
+                try:
+                    callback()
+                    finalized.append(True)
+                except Exception as error:
+                    errors.append(error)
+
+        cycle: list[object] = [Finalizer()]
+        cycle.append(cycle)
+        del cycle
+        try:
+            with self.collect_on_weakref_allocation():
+                yield
+            self.assertEqual(errors, [])
+            self.assertEqual(finalized, [True])
+        finally:
+            if gc_enabled:
+                gc.enable()
+
+    def test_reentrant_cleanup_completes(self) -> None:
+        def check_child() -> None:
+            dirty = asyncio.new_event_loop()
+            returned = asyncio.new_event_loop()
+            task = dirty.create_task(asyncio.sleep(999))
+            try:
+                self.pool.return_loop(dirty)
+                with self.finalize_on_weakref_allocation(self.pool._cleanup_dirty_loop):
+                    self.pool.return_loop(returned)
+                self.assertTrue(task.cancelled())
+                self.assertIs(self.pool.dirty_loop, returned)
+                self.assertIs(self.registry[id(dirty)], dirty)
+                self.assertFalse(dirty.is_closed())
+            finally:
+                _close_pooled_loops()
+                dirty.close()
+                returned.close()
+
+        self.run_in_forked_process(check_child)
+
+    def test_reentrant_return_parks(self) -> None:
+        def check_child() -> None:
+            inner = asyncio.new_event_loop()
+            outer = asyncio.new_event_loop()
+            try:
+                with self.finalize_on_weakref_allocation(
+                    lambda: self.pool.return_loop(inner)
+                ):
+                    self.pool.return_loop(outer)
+                self.assertEqual(list(self.pool.stack), [inner, outer])
+                self.assertIs(self.pool.dirty_loop, outer)
+                self.assertIs(self.registry[id(inner)], inner)
+                self.assertFalse(inner.is_closed())
+            finally:
+                _close_pooled_loops()
+                inner.close()
+                outer.close()
+
+        self.run_in_forked_process(check_child)
+
+    def test_reentrant_borrow_reuses(self) -> None:
+        def check_child() -> None:
+            parked = asyncio.new_event_loop()
+            returned = asyncio.new_event_loop()
+            borrowed: list[asyncio.AbstractEventLoop] = []
+
+            def borrow() -> None:
+                borrowed.append(self.pool.borrow_loop())
+
+            try:
+                self.pool.return_loop(parked)
+                with self.finalize_on_weakref_allocation(borrow):
+                    self.pool.return_loop(returned)
+                self.assertEqual(borrowed, [parked])
+                self.assertNotIn(id(parked), self.registry)
+                self.assertEqual(list(self.pool.stack), [returned])
+                self.assertFalse(parked.is_closed())
+            finally:
+                _close_pooled_loops()
+                parked.close()
+                returned.close()
+
+        self.run_in_forked_process(check_child)
+
+    def test_finalizer_inside_borrow_completes(self) -> None:
+        def check_child() -> None:
+            asyncio.set_event_loop(None)
+            finalized: list[bool] = []
+            errors: list[Exception] = []
+
+            async def noop() -> None:
+                await asyncio.sleep(0)
+
+            class FinalizingEntry:
+                def __del__(self) -> None:
+                    try:
+                        run_nested(noop())
+                        finalized.append(True)
+                    except Exception as error:
+                        errors.append(error)
+
+            real = asyncio.new_event_loop()
+            try:
+                self.pool.return_loop(real)
+                entry = FinalizingEntry()
+                self.pool.return_loop(cast(asyncio.AbstractEventLoop, entry))
+                self.pool.dirty_loop = real
+                # Dropping a stale entry's last reference in borrow_loop can
+                # invoke its finalizer before the next loop has been claimed.
+                self.registry.pop(id(entry))
+                del entry
+                self.assertIs(self.pool.borrow_loop(), real)
+                self.assertEqual(errors, [])
+                self.assertEqual(finalized, [True])
+            finally:
+                _close_pooled_loops()
+                real.close()
+
+        self.run_in_forked_process(check_child)
+
+    def test_finalizer_awaiting_executor_work_completes(self) -> None:
+        def check_child() -> None:
+            asyncio.set_event_loop(None)
+            finalized: list[asyncio.AbstractEventLoop] = []
+            errors: list[Exception] = []
+
+            async def get_loop() -> asyncio.AbstractEventLoop:
+                return asyncio.get_running_loop()
+
+            async def finalize() -> asyncio.AbstractEventLoop:
+                return await asyncio.to_thread(run_nested, get_loop())
+
+            class FinalizingEntry:
+                def __del__(self) -> None:
+                    try:
+                        finalized.append(run_nested(finalize()))
+                    except Exception as error:
+                        errors.append(error)
+
+            real = asyncio.new_event_loop()
+            try:
+                self.pool.return_loop(real)
+                entry = FinalizingEntry()
+                self.pool.return_loop(cast(asyncio.AbstractEventLoop, entry))
+                self.pool.dirty_loop = real
+                self.registry.pop(id(entry))
+                del entry
+                self.assertIs(self.pool.borrow_loop(), real)
+                self.assertEqual(errors, [])
+                self.assertEqual(len(finalized), 1)
+                self.assertIsNot(finalized[0], real)
+                _close_pooled_loops()
+                self.assertTrue(finalized[0].is_closed())
+                self.assertFalse(real.is_closed())
+            finally:
+                _close_pooled_loops()
+                real.close()
+
+        self.run_in_forked_process(check_child)
+
+    def test_finalizer_does_not_wedge_concurrent_borrowers(self) -> None:
+        def check_child() -> None:
+            asyncio.set_event_loop(None)
+            parked = threading.Event()
+            entered = threading.Event()
+            borrowed = threading.Event()
+            finalized: list[bool] = []
+            errors: list[Exception] = []
+
+            async def noop() -> None:
+                await asyncio.sleep(0)
+
+            class FinalizingEntry:
+                def __del__(self) -> None:
+                    try:
+                        entered.set()
+                        run_nested(noop())
+                        # Keep the finalizer active until the other thread borrows.
+                        if not borrowed.wait(timeout=10):
+                            raise TimeoutError("Concurrent borrower did not finish")
+                        finalized.append(True)
+                    except Exception as error:
+                        errors.append(error)
+
+            def borrow_during_finalization() -> None:
+                loop = asyncio.new_event_loop()
+                try:
+                    self.pool.return_loop(loop)
+                    parked.set()
+                    self.assertTrue(entered.wait(timeout=10))
+                    self.assertIs(self.pool.borrow_loop(), loop)
+                    self.assertNotIn(id(loop), self.registry)
+                    borrowed.set()
+                finally:
+                    loop.close()
+
+            real = asyncio.new_event_loop()
+            try:
+                with ThreadPoolExecutor(1) as executor:
+                    future = executor.submit(borrow_during_finalization)
+                    self.assertTrue(parked.wait(timeout=10))
+                    self.pool.return_loop(real)
+                    entry = FinalizingEntry()
+                    self.pool.return_loop(cast(asyncio.AbstractEventLoop, entry))
+                    self.pool.dirty_loop = real
+                    self.registry.pop(id(entry))
+                    del entry
+                    self.assertIs(self.pool.borrow_loop(), real)
+                    future.result(timeout=10)
+                self.assertEqual(errors, [])
+                self.assertEqual(finalized, [True])
+            finally:
+                _close_pooled_loops()
+                real.close()
+
+        self.run_in_forked_process(check_child, timeout=30)
+
+    def test_close_pooled_loops_survives_finalizer_storm(self) -> None:
+        def check_child() -> None:
+            asyncio.set_event_loop(None)
+            gc.disable()
+            attempts = 20
+            batch_size = 500
+            finalized: list[bool] = []
+            errors: list[Exception] = []
+            popitem = self.registry.popitem
+            collect_next = False
+
+            async def get_loop() -> asyncio.AbstractEventLoop:
+                return asyncio.get_running_loop()
+
+            class Finalizer:
+                def __del__(self) -> None:
+                    try:
+                        loop = run_nested(get_loop())
+                        finalized.append(loop.is_closed())
+                    except Exception as error:
+                        errors.append(error)
+
+            def collect_during_pop() -> tuple[int, asyncio.AbstractEventLoop]:
+                nonlocal collect_next
+                item = popitem()
+                if collect_next:
+                    collect_next = False
+                    gc.collect()
+                return item
+
+            for attempt in range(attempts):
+                with patch("later.runner._pool_shutdown", False):
+                    loops = [asyncio.new_event_loop() for _ in range(batch_size)]
+                    try:
+                        for loop in loops:
+                            self.pool.return_loop(loop)
+                        for _ in range(batch_size):
+                            cycle: list[object] = [Finalizer()]
+                            cycle.append(cycle)
+                            del cycle
+                        self.assertEqual(len(finalized), attempt * batch_size)
+                        self.assertEqual(len(self.registry), batch_size)
+                        # Collect only after the drain has claimed its first loop.
+                        # Keep the other loops alive so each must be closed.
+                        collect_next = True
+                        with patch.object(
+                            self.registry, "popitem", new=collect_during_pop
+                        ):
+                            _close_pooled_loops()
+                        self.assertEqual(errors, [])
+                        self.assertEqual(
+                            finalized, [True] * ((attempt + 1) * batch_size)
+                        )
+                        self.assertTrue(all(loop.is_closed() for loop in loops))
+                        self.assertEqual(len(self.registry), 0)
+                        self.assertEqual(len(self.pool.stack), 0)
+                        self.assertIsNone(self.pool.dirty_loop)
+                    finally:
+                        for loop in loops:
+                            loop.close()
+
+        self.run_in_forked_process(check_child, timeout=120)
+
+    def test_pool_reuses_loops_under_contention(self) -> None:
+        def check_child() -> None:
+            created: list[int] = []
+            worker_count = 32
+            start = threading.Barrier(worker_count, timeout=30)
+
+            def counting_new_loop() -> asyncio.AbstractEventLoop:
+                loop = new_event_loop()
+                created.append(1)
+                return loop
+
+            async def noop() -> None:
+                await asyncio.sleep(0)
+
+            def hammer(_: int) -> None:
+                start.wait()
+                for _ in range(100):
+                    run_nested(noop())
+
+            with (
+                ThreadPoolExecutor(worker_count) as executor,
+                patch("later.runner.new_event_loop", side_effect=counting_new_loop),
+            ):
+                list(executor.map(hammer, range(worker_count)))
+            self.assertLessEqual(
+                len(created), 64, f"pool churned {len(created)} loops for 32 threads"
+            )
+            _close_pooled_loops()
+
+        self.run_in_forked_process(check_child, timeout=60)
+
+    def test_run_nested_from_gc_finalizer(self) -> None:
+        for use_executor in (False, True):
+            with self.subTest(use_executor=use_executor):
+
+                def check_child(with_executor: bool = use_executor) -> None:
+                    asyncio.set_event_loop(None)
+                    gc.disable()
+                    seen: list[asyncio.AbstractEventLoop] = []
+                    errors: list[Exception] = []
+
+                    async def get_loop() -> asyncio.AbstractEventLoop:
+                        return asyncio.get_running_loop()
+
+                    async def finalize() -> asyncio.AbstractEventLoop:
+                        if with_executor:
+                            return await asyncio.to_thread(run_nested, get_loop())
+                        return run_nested(get_loop())
+
+                    class Finalizer:
+                        def __del__(self) -> None:
+                            try:
+                                seen.append(run_nested(finalize()))
+                            except Exception as error:
+                                errors.append(error)
+
+                    parked_loop = run_nested(get_loop())
+                    cycle: list[object] = [Finalizer()]
+                    cycle.append(cycle)
+                    del cycle
+                    with self.collect_on_weakref_allocation():
+                        self.assertIs(run_nested(get_loop()), parked_loop)
+                    self.assertEqual(errors, [])
+                    self.assertEqual(len(seen), 1)
+                    self.assertIs(run_nested(get_loop()), parked_loop)
+                    _close_pooled_loops()
+                    self.assertTrue(parked_loop.is_closed())
+                    self.assertTrue(seen[0].is_closed())
+
+                self.run_in_forked_process(check_child)
+
+    def test_run_nested_during_task_cleanup(self) -> None:
         asyncio.set_event_loop(None)
+        tasks: list[asyncio.Task[None]] = []
+
+        async def park_task() -> None:
+            tasks.append(asyncio.create_task(asyncio.sleep(999)))
+            await asyncio.sleep(0)
+
+        async def reenter_on_cancel() -> None:
+            try:
+                await asyncio.sleep(999)
+            finally:
+                run_nested(park_task())
+
+        async def start_task() -> None:
+            tasks.append(asyncio.create_task(reenter_on_cancel()))
+            await asyncio.sleep(0)
+
+        async def outer() -> None:
+            run_nested(start_task())
+
+        run_nested(outer())
+
+        self.assertEqual(len(tasks), 2)
+        self.assertTrue(all(task.cancelled() for task in tasks))
 
     def test_close_pooled_loops_closes_parked_loops(self) -> None:
         # A loop parked in the pool must be closed by the drain so it is never
@@ -80,19 +508,185 @@ class TestRunner(TestCase):
         self.assertEqual(len(pool.stack), 0)
 
     def test_close_pooled_loops_defaults_to_global_pool(self) -> None:
-        # With no argument the drain targets the process-global pool (the atexit
-        # path). Snapshot + restore it so this never disturbs loops parked by
-        # other tests running in the same process.
-        saved_stack = list(_thread_local_pool.stack)
-        saved_dirty = _thread_local_pool.dirty_loop
+        loop = self.pool.borrow_loop()
+        self.pool.return_loop(loop)
+
+        _close_pooled_loops()
+
+        self.assertTrue(loop.is_closed())
+        self.assertEqual(len(self.pool.stack), 0)
+        self.assertIsNone(self.pool.dirty_loop)
+        self.assertEqual(len(self.registry), 0)
+
+    def test_close_pooled_loops_closes_worker_thread_loops(self) -> None:
+        # The main-thread atexit drain cannot see worker-local pools. Their loops
+        # must still close before GC tears down sockets and makes loop.__del__ fail.
+        worker_count = 3
+        barrier = threading.Barrier(worker_count, timeout=10)
+
+        async def get_loop() -> asyncio.AbstractEventLoop:
+            return asyncio.get_running_loop()
+
+        def park_loop() -> asyncio.AbstractEventLoop:
+            loop = run_nested(get_loop())
+            barrier.wait()
+            return loop
+
+        with ThreadPoolExecutor(worker_count) as executor:
+            loops = list(executor.map(lambda _: park_loop(), range(worker_count)))
+
+        self.assertEqual(worker_count, len(set(loops)))
+        self.assertTrue(all(not loop.is_closed() for loop in loops))
+
+        _close_pooled_loops()
+
+        self.assertTrue(all(loop.is_closed() for loop in loops))
+
+    def test_close_pooled_loops_skips_loop_being_cleaned(self) -> None:
+        dirty_loop = asyncio.new_event_loop()
+        returned_loop = asyncio.new_event_loop()
+        self.addCleanup(dirty_loop.close)
+        self.addCleanup(returned_loop.close)
+        cleanup_started = threading.Event()
+        resume_cleanup = threading.Event()
+        run_until_complete = dirty_loop.run_until_complete
+
+        def pause_after_run(awaitable: Awaitable[object]) -> object:
+            result = run_until_complete(awaitable)
+            if not cleanup_started.is_set():
+                cleanup_started.set()
+                if not resume_cleanup.wait(timeout=10):
+                    raise TimeoutError("Timed out waiting to resume loop cleanup")
+            return result
+
+        def bury_dirty_loop() -> None:
+            self.pool.return_loop(dirty_loop)
+            self.pool.return_loop(returned_loop)
+
+        with (
+            ThreadPoolExecutor(1) as executor,
+            patch.object(dirty_loop, "run_until_complete", side_effect=pause_after_run),
+        ):
+            future = executor.submit(bury_dirty_loop)
+            try:
+                self.assertTrue(cleanup_started.wait(timeout=10))
+                _close_pooled_loops()
+                self.assertFalse(dirty_loop.is_closed())
+            finally:
+                resume_cleanup.set()
+            future.result(timeout=10)
+
+        self.assertTrue(dirty_loop.is_closed())
+        self.assertTrue(returned_loop.is_closed())
+
+    def test_return_loop_after_shutdown_does_not_reuse_closed_loop(self) -> None:
+        loop = self.pool.borrow_loop()
+        self.pool.return_loop(loop)
+        with ThreadPoolExecutor(1) as executor:
+            executor.submit(_close_pooled_loops).result(timeout=10)
+        self.assertTrue(loop.is_closed())
+
+        returned_loop = asyncio.new_event_loop()
+        self.pool.return_loop(returned_loop)
+        self.assertNotIn(id(loop), self.registry)
+        self.assertTrue(returned_loop.is_closed())
+        self.assertEqual(len(self.pool.stack), 0)
+        self.assertIsNone(self.pool.dirty_loop)
+        replacement = self.pool.borrow_loop()
+        self.addCleanup(replacement.close)
+        self.assertFalse(replacement.is_closed())
+
+    def test_shutdown_during_loop_publication(self) -> None:
+        loop = asyncio.new_event_loop()
+        self.addCleanup(loop.close)
+        publishing = threading.Event()
+        resume = threading.Event()
+
+        def pause_publication(obj: object, *args: object) -> object:
+            if obj is loop:
+                publishing.set()
+                if not resume.wait(timeout=10):
+                    raise TimeoutError("Timed out waiting to publish loop")
+            return DEFAULT
+
+        with (
+            ThreadPoolExecutor(1) as executor,
+            patch(
+                "weakref.KeyedRef",
+                side_effect=pause_publication,
+                wraps=weakref.KeyedRef,
+            ),
+        ):
+            future = executor.submit(self.pool.return_loop, loop)
+            try:
+                self.assertTrue(publishing.wait(timeout=10))
+                _close_pooled_loops()
+                self.assertFalse(loop.is_closed())
+            finally:
+                resume.set()
+            future.result(timeout=10)
+
+        self.assertTrue(loop.is_closed())
+        self.assertEqual(len(self.registry), 0)
+
+    def test_return_loop_discards_closed_dirty_loop(self) -> None:
+        closed_loop = self.pool.borrow_loop()
+        self.pool.return_loop(closed_loop)
+        closed_loop.close()
+
+        loop = asyncio.new_event_loop()
+        self.pool.return_loop(loop)
+
+        self.assertNotIn(id(closed_loop), self.registry)
+        self.assertIn(id(loop), self.registry)
+
+    def test_fork_discards_worker_thread_loops(self) -> None:
+        async def get_loop() -> asyncio.AbstractEventLoop:
+            return asyncio.get_running_loop()
+
+        with ThreadPoolExecutor(1) as executor:
+            loop = executor.submit(run_nested, get_loop()).result(timeout=10)
+
+        def check_child() -> None:
+            self.assertEqual(len(self.registry), 0)
+            _close_pooled_loops()
+            self.assertFalse(loop.is_closed())
+
+        self.run_in_forked_process(check_child)
+        self.assertIn(id(loop), self.registry)
+        self.assertFalse(loop.is_closed())
+
+    def test_fork_starts_fresh_pool_after_shutdown(self) -> None:
+        _close_pooled_loops()
+
+        def check_child() -> None:
+            loop = self.pool.borrow_loop()
+            self.pool.return_loop(loop)
+            self.assertFalse(loop.is_closed())
+            self.assertIn(id(loop), self.registry)
+            _close_pooled_loops()
+
+        self.run_in_forked_process(check_child)
+        loop = self.pool.borrow_loop()
+        self.pool.return_loop(loop)
+        self.assertTrue(loop.is_closed())
+
+
+class TestRunner(TestCase):
+    def setUp(self) -> None:
+        # Setup a default loop for the test
+        self.loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(self.loop)
+        self.addCleanup(self.cleanup)
+
+    def cleanup(self) -> None:
+        # This cleans up the stack of nested loops
+        for loop in _thread_local_pool.stack:
+            loop.close()
         _thread_local_pool.stack.clear()
         _thread_local_pool.dirty_loop = None
-        try:
-            _close_pooled_loops()
-            self.assertEqual(len(_thread_local_pool.stack), 0)
-        finally:
-            _thread_local_pool.stack.extend(saved_stack)
-            _thread_local_pool.dirty_loop = saved_dirty
+        self.loop.close()
+        asyncio.set_event_loop(None)
 
     def test_simple_run_with_nesting(self) -> None:
         """

@@ -26,6 +26,7 @@ import atexit
 import logging
 import os
 import threading
+import weakref
 from asyncio import AbstractEventLoop
 from asyncio.events import (
     _get_running_loop as get_running_loop,
@@ -43,6 +44,10 @@ T = TypeVar("T")
 ALLOW_NESTED_LOOPS: bool = os.environ.get("ALLOW_NESTED_LOOPS", "1") == "1"
 logger: logging.Logger = logging.getLogger(__name__)
 PID: int = getpid()
+_pooled_loops: weakref.WeakValueDictionary[int, AbstractEventLoop] = (
+    weakref.WeakValueDictionary()
+)
+_pool_shutdown: bool = False
 
 try:  # pragma: no cover
     # pyre-ignore[21]: Suppress error that type checker can't import these
@@ -137,28 +142,54 @@ class _ThreadLocalPool(threading.local):
         else:  # pragma: no cover
             cancel_all_tasks(loop)
 
+    def _cleanup_dirty_loop(self) -> None:
+        """Clean the dirty loop without exposing it to the shutdown drain."""
+        while (loop := self.dirty_loop) is not None:
+            claimed = _pooled_loops.pop(id(loop), None)
+            if self.dirty_loop is loop:
+                self.dirty_loop = None
+            if claimed is None or loop.is_closed() or loop.is_running():
+                continue
+            try:
+                _ThreadLocalPool.cleanup_loop(loop)
+            finally:
+                _pooled_loops[id(loop)] = loop
+                if _pool_shutdown and _pooled_loops.pop(id(loop), None) is not None:
+                    _close_loop(loop)
+
     def return_loop(self, loop: AbstractEventLoop) -> None:
         "Give a loop back to the pool"
-        # a dirty loop is getting burried in the stack, clean it up.
-        if dirty_loop := self.dirty_loop:
-            if not (dirty_loop.is_closed() or dirty_loop.is_running()):
-                # This takes place inside run_nested, so we never need to pause the existing loop
-                _ThreadLocalPool.cleanup_loop(dirty_loop)
-                self.dirty_loop = None
+        # Publishing can run GC finalizers that reenter the pool. Clean any loops
+        # they leave dirty before burying them beneath this one.
+        _pooled_loops[id(loop)] = loop
+        self._cleanup_dirty_loop()
         self.stack.append(loop)
-        # This loop is "dirty" and needs to be cleaned up if burried in the stack
         self.dirty_loop = loop
+        # A return racing with the shutdown drain may publish after it finishes.
+        # Either this pop or the drain's popitem claims responsibility for closing.
+        if _pool_shutdown:
+            claimed = _pooled_loops.pop(id(loop), None)
+            self.stack.clear()
+            self.dirty_loop = None
+            if claimed is not None:
+                _close_loop(loop)
 
     def borrow_loop(self) -> AbstractEventLoop:
         "Returns a loop 'borrowed' from the pool, order LIFO"
-        loop: AbstractEventLoop
         stack = self.stack
-        # Any loop that is not "ready" is considered borked and discarded
-        while stack:
-            loop = stack.pop()
+        while True:
+            try:
+                loop = stack.pop()
+            except IndexError:
+                return new_event_loop()
+            # WeakValueDictionary.pop removes the underlying integer-keyed dict
+            # entry atomically, including on free-threaded Python. No Python lock
+            # may span allocations: GC finalizers can themselves call run_nested.
+            claimed = _pooled_loops.pop(id(loop), None)
             if loop is self.dirty_loop:
-                # We can clean this up when loop is returned.
                 self.dirty_loop = None
+            if claimed is None:
+                continue
             if loop.is_running():
                 logger.error("Running eventloop in pool, discarding")
                 continue
@@ -166,9 +197,6 @@ class _ThreadLocalPool(threading.local):
                 logger.error("Closed eventloop in pool, discarding")
                 continue
             return loop
-        # We need to create a loop since the pool is empty of ready loops
-        loop = new_event_loop()
-        return loop
 
     def __len__(self) -> int:
         """This is mostly for unittest to quickly see the loop count"""
@@ -180,7 +208,31 @@ _thread_local_pool: _ThreadLocalPool = _ThreadLocalPool()
 
 # At fork, reinitialize the `_thread_local_pool` so it is useable in the child
 if hasattr(os, "register_at_fork"):
-    os.register_at_fork(after_in_child=_thread_local_pool.atFork)
+
+    def _after_fork_in_child() -> None:  # pragma: no cover
+        global _pool_shutdown
+        _pooled_loops.clear()
+        _pool_shutdown = False
+        _thread_local_pool.atFork()
+
+    os.register_at_fork(after_in_child=_after_fork_in_child)
+
+
+def _close_loop(loop: AbstractEventLoop) -> None:
+    """Close an open, stopped loop that the caller has claimed for shutdown."""
+    if loop.is_running() or loop.is_closed():
+        return
+    # Best-effort: neither cancelling tasks nor closing may raise, or one bad
+    # loop would abort the drain and become the very shutdown noise this exists
+    # to suppress. Logging is unsafe this late in teardown, so swallow.
+    try:
+        _ThreadLocalPool.cleanup_loop(loop)
+    except Exception:
+        pass
+    try:
+        loop.close()
+    except Exception:
+        pass
 
 
 def _close_pooled_loops(pool: _ThreadLocalPool | None = None) -> None:
@@ -194,32 +246,37 @@ def _close_pooled_loops(pool: _ThreadLocalPool | None = None) -> None:
     output. `cleanup_loop` cancels any lingering tasks / async generators first so a
     parked loop with unfinished work does not emit "Task was destroyed" on close.
 
-    Registered via `atexit` for the process-global pool (`pool=None`), draining the
-    main thread's pool at interpreter shutdown; other threads' pools are freed when
-    those threads exit. `pool` is injectable so a test drains its own pool without
-    disturbing loops other tests parked in the global one.
+    Registered via `atexit` for the process-global pool (`pool=None`). A
+    process-wide weak registry makes loops parked by worker threads visible to the
+    main thread during interpreter shutdown. `pool` is injectable so a test drains
+    one pool without disturbing loops parked elsewhere.
+
+    A global drain ends pooling: loops still borrowed or being cleaned are closed
+    by whichever thread claims their registry entry after they are returned.
     """
+    global _pool_shutdown
     if pool is None:
-        pool = _thread_local_pool
+        _pool_shutdown = True
+        # Do not check whether the registry is empty before you call popitem().
+        # Another thread or garbage collection can remove the last entry after the check.
+        while True:
+            try:
+                _, loop = _pooled_loops.popitem()
+            except KeyError:
+                break
+            _close_loop(loop)
+        _thread_local_pool.stack.clear()
+        _thread_local_pool.dirty_loop = None
+        return
+
     loops = list(pool.stack)
     pool.stack.clear()
     if (dirty_loop := pool.dirty_loop) is not None:
         loops.append(dirty_loop)
         pool.dirty_loop = None
     for loop in loops:
-        if loop.is_running() or loop.is_closed():
-            continue
-        # Best-effort: neither cancelling tasks nor closing may raise, or one bad
-        # loop would abort the drain and become the very shutdown noise this exists
-        # to suppress. Logging is unsafe this late in teardown, so swallow.
-        try:
-            _ThreadLocalPool.cleanup_loop(loop)
-        except Exception:
-            pass
-        try:
-            loop.close()
-        except Exception:
-            pass
+        _pooled_loops.pop(id(loop), None)
+        _close_loop(loop)
 
 
 atexit.register(_close_pooled_loops)
