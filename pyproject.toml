@@ -33,7 +33,7 @@ dependencies = [
 dev = [
     "async-timeout==5.0.1",
     "coverage==7.16.1",
-    "flit==4.0.2",
+    "flit==4.1.0",
 ]
 
 [project.urls]
