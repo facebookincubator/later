@@ -135,9 +135,10 @@ class _ThreadLocalPool(threading.local):
             loop._asyncgens_shutdown_called = False
             cancel_all_tasks(loop)
             # Lets throw away the default executor if it exists
+            # pyrefly: ignore [missing-attribute]
             if (executor := loop._default_executor) is not None:
                 executor.shutdown(wait=False, cancel_futures=True)
-                # pyrefly: ignore [bad-assignment]
+                # pyrefly: ignore [bad-assignment, missing-attribute]
                 loop._default_executor = None
         else:  # pragma: no cover
             cancel_all_tasks(loop)
