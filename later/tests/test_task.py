@@ -15,6 +15,7 @@
 from __future__ import annotations
 
 import asyncio
+import gc
 from contextlib import suppress
 from typing import cast
 from unittest.mock import call, Mock
@@ -126,6 +127,59 @@ class TaskTests(TestCase):
             await ctask
         self.assertTrue(ctask.cancelled())
         self.assertTrue(otask.cancelled())
+
+    async def test_repeated_cancel_during_target_cleanup(self) -> None:
+        started = [asyncio.Event() for _ in range(3)]
+        cleaning = [asyncio.Event() for _ in range(3)]
+        release = asyncio.Event()
+        finished = set()
+
+        async def target(index: int) -> int:
+            started[index].set()
+            try:
+                await asyncio.Event().wait()
+            except asyncio.CancelledError:
+                cleaning[index].set()
+                await release.wait()
+                finished.add(index)
+                if index == 0:
+                    return 42
+                if index == 1:
+                    raise TypeError("cleanup failed")
+                raise
+            raise AssertionError("target should be cancelled")
+
+        tasks = [asyncio.create_task(target(index)) for index in range(3)]
+        cancellers = []
+        async with asyncio.timeout(10):
+            try:
+                await asyncio.gather(*(event.wait() for event in started))
+                cancellers = [asyncio.create_task(later.cancel(task)) for task in tasks]
+                await asyncio.gather(*(event.wait() for event in cleaning))
+                for _ in range(2):
+                    for canceller in cancellers:
+                        canceller.cancel()
+                    turn = asyncio.Event()
+                    asyncio.get_running_loop().call_soon(turn.set)
+                    await turn.wait()
+                    self.assertFalse(any(canceller.done() for canceller in cancellers))
+                    self.assertEqual(finished, set())
+            finally:
+                release.set()
+                for task, event in zip(tasks, cleaning, strict=True):
+                    if not event.is_set():
+                        task.cancel()
+                results = await asyncio.gather(*cancellers, return_exceptions=True)
+                await asyncio.gather(*tasks, return_exceptions=True)
+        self.assertEqual(finished, {0, 1, 2})
+        self.assertEqual([task.cancelling() for task in tasks], [1, 1, 1])
+        self.assertIsInstance(results[0], asyncio.InvalidStateError)
+        self.assertIsInstance(results[1], TypeError)
+        self.assertIsInstance(results[2], asyncio.CancelledError)
+        self.assertEqual(tasks[0].result(), 42)
+        self.assertTrue(tasks[2].cancelled())
+        # Collect abandoned shields while TestCase still monitors asyncio errors.
+        gc.collect()
 
 
 class WatcherTests(TestCase):

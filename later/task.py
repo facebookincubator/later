@@ -110,20 +110,11 @@ async def cancel(fut: asyncio.Future) -> None:
     fut.cancel()
     exc: asyncio.CancelledError | None = None
     while not fut.done():
-        shielded = asyncio.shield(fut)
         try:
-            await asyncio.wait([shielded])
+            # asyncio.wait does not propagate caller cancellation to fut.
+            await asyncio.wait([fut])
         except asyncio.CancelledError as ex:
             exc = ex
-        finally:
-            # Insure we handle the exception/value that may exist on the shielded task
-            # This will prevent errors logged to the asyncio logger
-            if (
-                shielded.done()
-                and not shielded.cancelled()
-                and not shielded.exception()
-            ):
-                shielded.result()
     if fut.cancelled():
         if exc is None:
             return
