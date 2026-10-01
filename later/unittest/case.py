@@ -44,6 +44,9 @@ _F = TypeVar("_F", bound=Callable[..., object])
 _IGNORE_TASK_LEAKS_ATTR = "__later_testcase_ignore_tasks__"
 _IGNORE_AIO_ERRS_ATTR = "__later_testcase_ignore_asyncio__"
 _unmanaged_tasks: weakref.WeakSet[asyncio.Task] = weakref.WeakSet()
+# Python 3.14's asyncio.shield() logs an exception the shielded future raises after
+# its caller was cancelled; earlier versions silently marked it retrieved.
+_SHIELDED_FUTURE_LOG = "exception in shielded future"
 
 
 def task_factory(
@@ -75,6 +78,10 @@ def all_tasks(loop: asyncio.AbstractEventLoop) -> AbstractSet[asyncio.Task]:
         else:
             break
     return {t for t in tasks if _get_loop(t) is loop}
+
+
+def _is_shielded_future_log(message: object) -> bool:
+    return str(message).partition("\n")[0].endswith(_SHIELDED_FUTURE_LOG)
 
 
 def ignoreAsyncioErrors(test_item: _F) -> _F:
@@ -163,6 +170,11 @@ class TestCase(AsyncioTestCase):
                 f"left over un-awaited tasks:\n{errors if errors else left_over_tasks}"
             )
 
-        if error.called and not ignore_error:
-            errors = "\n\n".join(c[0][0] for c in error.call_args_list)
-            self.fail(f"asyncio logger.error() was called!\n{errors}")
+        if not ignore_error:
+            errors = "\n\n".join(
+                c[0][0]
+                for c in error.call_args_list
+                if not _is_shielded_future_log(c[0][0])
+            )
+            if errors:
+                self.fail(f"asyncio logger.error() was called!\n{errors}")

@@ -108,6 +108,31 @@ class TestTestCase(TestCase):
         asyncio.get_running_loop().create_task(asyncio.sleep(0))
         await asyncio.sleep(0)
 
+    async def test_shielded_future_fails_after_caller_cancelled(self) -> None:
+        release = asyncio.Event()
+
+        async def inner() -> None:
+            await release.wait()
+            raise RuntimeError
+
+        inner_task = asyncio.get_running_loop().create_task(inner())
+
+        async def caller() -> None:
+            await asyncio.shield(inner_task)
+
+        caller_task = asyncio.get_running_loop().create_task(caller())
+        await asyncio.sleep(0)
+        caller_task.cancel()
+        with self.assertRaises(asyncio.CancelledError):
+            await caller_task
+        release.set()
+        with self.assertRaises(RuntimeError):
+            await inner_task
+
+    @unittest.expectedFailure
+    async def test_asyncio_error_log(self) -> None:
+        asyncio.get_running_loop().call_exception_handler({"message": "boom"})
+
 
 @ignoreAsyncioErrors
 class IgnoreAsyncioErrorsTestCase(TestCase):
