@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import asyncio
 import unittest
+from collections.abc import AsyncGenerator
 
 from later.unittest import ignoreAsyncioErrors, ignoreTaskLeaks, TestCase
 
@@ -128,6 +129,20 @@ class TestTestCase(TestCase):
         release.set()
         with self.assertRaises(RuntimeError):
             await inner_task
+
+    async def test_async_generator_abandoned_mid_iteration(self) -> None:
+        async def numbers() -> AsyncGenerator[int, None]:
+            yield 1
+            yield 2
+
+        async def relay(
+            gen: AsyncGenerator[int, None],
+        ) -> AsyncGenerator[int, None]:
+            async for n in gen:
+                yield n
+
+        async for _ in relay(numbers()):
+            break
 
     @unittest.expectedFailure
     async def test_asyncio_error_log(self) -> None:

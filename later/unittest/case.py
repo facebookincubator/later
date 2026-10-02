@@ -80,6 +80,14 @@ def all_tasks(loop: asyncio.AbstractEventLoop) -> AbstractSet[asyncio.Task]:
     return {t for t in tasks if _get_loop(t) is loop}
 
 
+def _is_asyncgen_finalizer_task(task: asyncio.Task) -> bool:
+    # The loop's asyncgen finalizer hook schedules agen.aclose() for an async
+    # generator dropped mid-iteration. Python 3.14 finalizes such generators
+    # inside the test, where earlier versions often deferred them to loop
+    # shutdown, so these tasks are the loop's own cleanup, not leaks.
+    return type(task.get_coro()).__name__ == "async_generator_athrow"
+
+
 def _is_shielded_future_log(message: object) -> bool:
     return str(message).partition("\n")[0].endswith(_SHIELDED_FUTURE_LOG)
 
@@ -156,7 +164,9 @@ class TestCase(AsyncioTestCase):
             loop.run_until_complete(self._asyncioCallsQueue.join())
         left_over_tasks = set(all_tasks(loop)) - set(start_tasks)
         for task in list(left_over_tasks):
-            if isinstance(task, TestTask) and task.was_managed():
+            if (
+                isinstance(task, TestTask) and task.was_managed()
+            ) or _is_asyncgen_finalizer_task(task):
                 left_over_tasks.remove(task)
         if left_over_tasks and not ignore_tasks:
             errors = "\n".join(
