@@ -138,7 +138,7 @@ class _ThreadLocalPool(threading.local):
             # pyrefly: ignore [missing-attribute]
             if (executor := loop._default_executor) is not None:
                 executor.shutdown(wait=False, cancel_futures=True)
-                # pyrefly: ignore [bad-assignment, missing-attribute]
+                # pyrefly: ignore [missing-attribute]
                 loop._default_executor = None
         else:  # pragma: no cover
             cancel_all_tasks(loop)
