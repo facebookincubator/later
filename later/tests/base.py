@@ -12,18 +12,34 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import sys
 import unittest
 
-from later.tests.test_event import Test_BiDirectionalEvent  # noqa: F401
-from later.tests.test_task import TaskTests, WatcherTests  # noqa: F401
-from later.tests.test_version import VersionTests  # noqa: F401
-from later.tests.unittest.test_case import (  # noqa: F401
+from later.tests.test_event import Test_BiDirectionalEvent
+from later.tests.test_fork import TestForkCleanup
+from later.tests.test_fork_windows import TestForkLifetimeWindows
+from later.tests.test_task import TaskTests, WatcherTests
+from later.tests.test_version import VersionTests
+from later.tests.unittest.test_case import (
     IgnoreAsyncioErrorsTestCase,
     IgnoreTaskLeaksTestCase,
     TestTestCase,
 )
-from later.tests.unittest.test_mock import TestAsyncContextManagerMock  # noqa: F401
+from later.tests.unittest.test_mock import TestAsyncContextManagerMock
+
+# The classes above are re-exported so that this module is the one entrypoint of
+# the whole suite: `python -m unittest later.tests.base`.
+__all__ = [
+    "IgnoreAsyncioErrorsTestCase",
+    "IgnoreTaskLeaksTestCase",
+    "TaskTests",
+    "TestAsyncContextManagerMock",
+    "TestForkCleanup",
+    "TestForkLifetimeWindows",
+    "TestTestCase",
+    "Test_BiDirectionalEvent",
+    "VersionTests",
+    "WatcherTests",
+]
 
 
 if __name__ == "__main__":

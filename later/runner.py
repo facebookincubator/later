@@ -48,6 +48,20 @@ _pooled_loops: weakref.WeakValueDictionary[int, AbstractEventLoop] = (
     weakref.WeakValueDictionary()
 )
 _pool_shutdown: bool = False
+# Unlike the shutdown registry, this also tracks borrowed and cleaning loops.
+_live_loops: weakref.WeakValueDictionary[int, AbstractEventLoop] = (
+    weakref.WeakValueDictionary()
+)
+_fork_captures: dict[int, dict[int, AbstractEventLoop]] = {}
+
+
+class _ForkState(threading.local):
+    def __init__(self) -> None:
+        self.stack: list[dict[int, AbstractEventLoop]] = []
+
+
+_fork_state = _ForkState()
+_inherited_loops: list[AbstractEventLoop] = []
 
 try:  # pragma: no cover
     # pyre-ignore[21]: Suppress error that type checker can't import these
@@ -162,6 +176,7 @@ class _ThreadLocalPool(threading.local):
         "Give a loop back to the pool"
         # Publishing can run GC finalizers that reenter the pool. Clean any loops
         # they leave dirty before burying them beneath this one.
+        _track_loop(loop)
         _pooled_loops[id(loop)] = loop
         self._cleanup_dirty_loop()
         self.stack.append(loop)
@@ -182,7 +197,9 @@ class _ThreadLocalPool(threading.local):
             try:
                 loop = stack.pop()
             except IndexError:
-                return new_event_loop()
+                loop = new_event_loop()
+                _track_loop(loop)
+                return loop
             # WeakValueDictionary.pop removes the underlying integer-keyed dict
             # entry atomically, including on free-threaded Python. No Python lock
             # may span allocations: GC finalizers can themselves call run_nested.
@@ -207,16 +224,51 @@ class _ThreadLocalPool(threading.local):
 _thread_local_pool: _ThreadLocalPool = _ThreadLocalPool()
 
 
+def _track_loop(loop: AbstractEventLoop) -> None:
+    _live_loops[id(loop)] = loop
+    # Publish first: a concurrent capture either sees the weak entry or is
+    # already in this copy. Each capture has its own lifetime.
+    for capture in _fork_captures.copy().values():
+        capture[id(loop)] = loop
+
+
 # At fork, reinitialize the `_thread_local_pool` so it is useable in the child
 if hasattr(os, "register_at_fork"):
 
+    def _before_fork() -> None:  # pragma: no cover
+        capture: dict[int, AbstractEventLoop] = {}
+        _fork_state.stack.append(capture)
+        _fork_captures[id(capture)] = capture
+        # Copy weak references before dereferencing: callbacks and other threads
+        # may change the inventory while we promote its entries to strong refs.
+        for ref in _live_loops.valuerefs():
+            if (loop := ref()) is not None:
+                capture[id(loop)] = loop
+
+    def _after_fork_in_parent() -> None:  # pragma: no cover
+        capture = _fork_state.stack.pop()
+        del _fork_captures[id(capture)]
+
     def _after_fork_in_child() -> None:  # pragma: no cover
-        global _pool_shutdown
+        global _pool_shutdown, _fork_captures
+        # Other threads' locals can disappear before this hook. Their captures
+        # remain process-owned, including loops published after the before hook.
+        for capture in _fork_captures.copy().values():
+            _inherited_loops.extend(capture.values())
+        # Only the innermost fork completed. The surviving thread can still
+        # be in enclosing before callbacks, which can create child-owned loops.
+        _fork_state.stack.pop()
+        _fork_captures = {id(capture): capture for capture in _fork_state.stack}
+        _live_loops.clear()
         _pooled_loops.clear()
         _pool_shutdown = False
         _thread_local_pool.atFork()
 
-    os.register_at_fork(after_in_child=_after_fork_in_child)
+    os.register_at_fork(
+        before=_before_fork,
+        after_in_parent=_after_fork_in_parent,
+        after_in_child=_after_fork_in_child,
+    )
 
 
 def _close_loop(loop: AbstractEventLoop) -> None:
