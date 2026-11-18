@@ -415,6 +415,80 @@ class WatcherTests(TestCase):
 
 
 class HerdTests(TestCase):
+    async def test_new_waiter_joins_fetch_after_another_waiter_is_cancelled(
+        self,
+    ) -> None:
+        called = 0
+        started = asyncio.Event()
+        release = asyncio.Event()
+
+        @later.herd
+        async def fetch(key: int) -> int:
+            nonlocal called
+            called += 1
+            started.set()
+            await release.wait()
+            return key
+
+        calls = [asyncio.create_task(fetch(7)), asyncio.create_task(fetch(7))]
+        try:
+            await started.wait()
+            await later.cancel(calls[0])
+            calls.append(asyncio.create_task(fetch(7)))
+            await asyncio.sleep(0)
+            await asyncio.sleep(0)
+            self.assertEqual(called, 1)
+        finally:
+            release.set()
+            results = await asyncio.gather(*calls, return_exceptions=True)
+        self.assertIsInstance(results[0], asyncio.CancelledError)
+        self.assertEqual(results[1:], [7, 7])
+
+    async def test_new_call_during_last_waiter_cleanup_uses_a_fresh_herd(self) -> None:
+        called = 0
+        started = asyncio.Event()
+        cleanup_started = asyncio.Event()
+        cleanup_release = asyncio.Event()
+        replacement_started = asyncio.Event()
+        replacement_release = asyncio.Event()
+
+        @later.herd
+        async def fetch(key: int) -> int:
+            nonlocal called
+            called += 1
+            if called == 1:
+                started.set()
+                try:
+                    await asyncio.Event().wait()
+                finally:
+                    cleanup_started.set()
+                    await cleanup_release.wait()
+            else:
+                replacement_started.set()
+                await replacement_release.wait()
+            return key
+
+        calls = [asyncio.create_task(fetch(7))]
+        try:
+            await started.wait()
+            calls[0].cancel()
+            await cleanup_started.wait()
+            calls.append(asyncio.create_task(fetch(7)))
+            await asyncio.wait_for(replacement_started.wait(), timeout=2)
+            self.assertFalse(calls[0].done())
+            cleanup_release.set()
+            with self.assertRaises(asyncio.CancelledError):
+                await calls[0]
+            calls.append(asyncio.create_task(fetch(7)))
+            await asyncio.sleep(0)
+            await asyncio.sleep(0)
+            self.assertEqual(called, 2)
+        finally:
+            cleanup_release.set()
+            replacement_release.set()
+            results = await asyncio.gather(*calls, return_exceptions=True)
+        self.assertEqual(results[1:], [7, 7])
+
     async def test_herd_cancellation(self) -> None:
         called = 0
         original_cancelled = False

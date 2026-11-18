@@ -707,14 +707,15 @@ def herd(
                 return await asyncio.shield(task)
             except asyncio.CancelledError:
                 if count_task.count == 1:
+                    # New callers must not join the fetch while it is cancelling.
+                    if pending.get(request) is count_task:
+                        del pending[request]
                     await cancel(task)
                 raise  # always re-raise CancelledError
             finally:
                 count_task.count -= 1
-                # Lets destroy the herd on last member exit or
-                # First success member exit. This is to mirror the original
-                # herd behavior that tore down the herd after the original call exited
-                if count_task.count == 0 or not task.cancelled():
+                # A cancelled waiter must not detach a fetch others still await.
+                if count_task.count == 0 or task.done():
                     if request in pending and pending[request] is count_task:
                         del pending[request]
 
