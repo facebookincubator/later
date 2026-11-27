@@ -995,7 +995,16 @@ class TestRunner(TestCase):
         ]:
             return run_nested(make_task())
 
-        tasks, loop = run_nested(nested())
+        # Burying the nested loop reports the misbehaving tasks through the
+        # asyncio logger; capture and check those three expected messages
+        # instead of printing them.
+        with self.assertLogs("asyncio", level="ERROR") as logs:
+            tasks, loop = run_nested(nested())
+
+        messages = "\n".join(logs.output)
+        self.assertIn("unhandled exception during task cancellation", messages)
+        self.assertIn("failed to raise a asyncio.CancelledError", messages)
+        self.assertIn("task did not cancel after runner.cancel_all_tasks()", messages)
 
         self.assertEqual(len(asyncio.all_tasks(loop)), 1)
         self.assertTrue(tasks[0].cancelled())
