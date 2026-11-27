@@ -191,11 +191,17 @@ class WatcherTests(TestCase):
         callback = Mock()
         callback.side_effect = Exception("DERP!")
 
-        async with later.Watcher() as w:
-            w.add_preexit_callback(callback, 1, 2)
+        # The failing callback is logged and ignored; capture that log so the
+        # expected traceback doesn't clutter the test output.
+        with self.assertLogs("later.task", level="ERROR") as logs:
+            async with later.Watcher() as w:
+                w.add_preexit_callback(callback, 1, 2)
 
         self.assertTrue(callback.called)
         callback.assert_has_calls([call(1, 2)])
+        self.assertEqual(len(logs.records), 1)
+        self.assertIn("ignoring exception from pre-exit callback", logs.output[0])
+        self.assertIn("DERP!", logs.output[0])
 
     async def test_add_task_and_remove_task(self) -> None:
         loop: asyncio.AbstractEventLoop = asyncio.get_running_loop()
